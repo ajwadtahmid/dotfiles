@@ -1,0 +1,40 @@
+# ─── Container .bashrc ────────────────────────────────────────────────────────
+
+# Prompt — show user, host, and working directory
+PS1='\[\e[0;32m\]\u@\h\[\e[0m\]:\[\e[0;34m\]\w\[\e[0m\]\$ '
+
+# pyenv — Python version manager
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)" 2>/dev/null || true
+
+# fnm — Node.js version manager
+eval "$(fnm env --use-on-cd --shell bash)" 2>/dev/null || true
+
+# SDKMAN — Java ecosystem tools (Kotlin, Scala, Maven, Gradle)
+export SDKMAN_DIR="$HOME/.sdkman"
+[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+# Rust / Cargo
+source "$HOME/.cargo/env" 2>/dev/null || true
+
+# Go
+export GOPATH="$HOME/go"
+export PATH="$PATH:/usr/local/go/bin:$GOPATH/bin"
+
+# Flutter
+export PATH="$PATH:$HOME/flutter/bin"
+
+# FIX: Replaced swiftenv block with direct Swift PATH.
+#      swiftenv is no longer used — Swift is installed as a tarball in /opt.
+export PATH="/opt/swift-6.3-RELEASE-ubuntu24.04/usr/bin:$PATH"
+
+# Android SDK
+export ANDROID_HOME="$HOME/android-sdk"
+export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools"
+
+# Bun
+export PATH="$HOME/.bun/bin:$PATH"
+
+# pipx / local binaries (ansible, poetry, etc.)
+export PATH="$HOME/.local/bin:$PATH"
