@@ -1,0 +1,117 @@
+{
+  "name": "Universal Dev Environment",
+
+  // Uncomment the section below if you don't need Databases
+  // "image": "ghcr.io/ajwadtahmid/devenv:latest",
+  // // Where your project files appear inside the container
+  // "workspaceFolder": "/workspace",
+  // "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+
+
+  // Use docker-compose to start the dev container + all database services together
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",           // The service VS Code connects to (your dev container)
+  "workspaceFolder": "/workspace",
+
+  // Files mounted from your host machine into the container
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/dev/.ssh,type=bind,readonly",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,readonly"
+  ],
+
+  // Extra capabilities added on top of the base image
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+
+  // VS Code extensions and settings applied inside the container
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // General
+        "eamodio.gitlens",
+        "streetsidesoftware.code-spell-checker",
+        "EditorConfig.EditorConfig",
+
+        // Python
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+
+        // JS / TS
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+
+        // Rust
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+
+        // Go
+        "golang.go",
+
+        // Java / Kotlin
+        "redhat.java",
+        "vscjava.vscode-java-pack",
+        "fwcd.kotlin",
+
+        // Scala
+        "scala-lang.scala",
+        "scalameta.metals",
+
+        // Flutter / Dart
+        "Dart-Code.dart-code",
+        "Dart-Code.flutter",
+
+        // C / C++
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+
+        // Docker / Infra
+        "ms-azuretools.vscode-docker",
+        "HashiCorp.terraform",
+        "redhat.ansible",
+
+        // Swift
+        "sswg.swift-lang"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": true,
+        "editor.rulers": [100],
+        "python.defaultInterpreterPath": "/home/dev/.pyenv/shims/python"
+      }
+    }
+  },
+
+  // Run the container as the "dev" user created in the Dockerfile
+  "remoteUser": "dev",
+
+  // Extra Docker flags passed when the container is created
+  "runArgs": ["--shm-size=2gb"],
+
+  // Ports automatically forwarded from the container to your host
+  "forwardPorts": [
+    3000,   // React / Next.js / Vue / Svelte
+    4000,   // Misc backend
+    5000,   // Flask
+    8000,   // Django / FastAPI
+    8080,   // General HTTP
+    8888,   // Jupyter
+    5432,   // PostgreSQL
+    3306,   // MySQL
+    6379,   // Redis
+    27017   // MongoDB
+    // SQLite has no network port — it is a file-based database accessed directly
+  ],
+
+  "portsAttributes": {
+    "3000": { "label": "Frontend" },
+    "8000": { "label": "Backend" },
+    "8080": { "label": "HTTP" },
+    "5432": { "label": "PostgreSQL" },
+    "3306": { "label": "MySQL" },
+    "6379": { "label": "Redis" },
+    "27017": { "label": "MongoDB" }
+  }
+}
