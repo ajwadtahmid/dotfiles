@@ -1,0 +1,29 @@
+[user]
+    name  = Ajwad Tahmid
+    email = dev@ajwadtahmid.com
+
+[core]
+    # "code --wait" opens VS Code for commit messages and waits until you close the tab
+    # Change this to "zed --wait" or "nano" if you prefer a different editor
+    editor   = code --wait
+    # "input" normalises line endings to LF on commit, which is correct for Linux/macOS
+    # This prevents Windows-style CRLF line endings from sneaking into your repo
+    autocrlf = input
+
+[pull]
+    # Rebase instead of merge when pulling — keeps history linear and clean
+    # If you prefer merge commits, set this to "false"
+    rebase = true
+
+[push]
+    # Automatically set the upstream branch on first push, so you don't need
+    # to type `git push --set-upstream origin branch-name` every time
+    autoSetupRemote = true
+
+[alias]
+    # Pretty git log — graph view with branch labels, one line per commit
+    lg = log --oneline --graph --decorate --all
+    # Compact status — shows modified/untracked files in a short format
+    st = status -sb
+    # Undo the last commit but keep the changes staged
+    undo = reset --soft HEAD~1
