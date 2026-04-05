@@ -3,12 +3,10 @@
 ################################################################################
 #                   FEDORA DEVELOPER SETUP SCRIPT
 #
-#   A comprehensive installation script for Fedora Linux developers
-#   Includes: Node.js (NVM), Python, Docker, VS Code,
-#   and essential development tools
+#   An installation script for Fedora Linux
 #
 #   Usage: chmod +x install.sh && bash install.sh
-#   Tested on: Fedora 39+
+#   Tested on: Fedora 43
 #
 ################################################################################
 
@@ -137,7 +135,6 @@ section_flatpak() {
         org.kde.kdenlive \
         io.freetubeapp.FreeTube \
         com.github.Matoking.protontricks \
-        dev.zed.Zed \
         com.usebruno.Bruno \
         org.godotengine.Godot \
         fr.handbrake.ghb \
@@ -146,6 +143,8 @@ section_flatpak() {
 }
 
 #   Uncomment the apps you need, otherwise keep commented.
+#
+#     flatpak install flathub dev.zed.Zed
 #
 #     flatpak install flathub org.fedoraproject.MediaWriter
 #
@@ -170,7 +169,7 @@ section_flatpak() {
 #     flatpak install flathub com.visualstudio.code
 
 ################################################################################
-#              SECTION 5: MULLVAD VPN
+#              SECTION 4: MULLVAD VPN
 #
 #   Mullvad is an open-source, privacy-focused VPN provider.
 #   Install from official Mullvad repository for security and automatic updates.
@@ -191,7 +190,23 @@ section_mullvad_vpn() {
 }
 
 ################################################################################
-#              SECTION 7: PYTHON 3 WITH PIP & VENV
+#              SECTION 5: ZED EDITOR
+#
+#   Zed is a minimal code editor crafted for speed.
+#   Install from official Zed repository for security and automatic updates.
+################################################################################
+
+section_zed_editor() {
+    print_section "ZED EDITOR"
+
+    print_info "Installing Zed editor..."
+    sudo -u "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
+    print_success "Zed installed"
+}
+
+
+################################################################################
+#              SECTION 6: PYTHON 3 WITH PIP & VENV
 #
 #   Python 3 with virtual environment support for isolated project dependencies.
 #   Essential for scripting, data science, and automation tasks.
@@ -215,11 +230,11 @@ section_python() {
 }
 
 ################################################################################
-#              SECTION 8: DOCKER & DOCKER COMPOSE
+#              SECTION 7: DOCKER & DOCKER COMPOSE
 #
 #   Docker enables containerized development and testing.
 #   Auto-start daemon is configured to run on boot.
-#   Dev Containers extension for VS Code allows container-based development.
+#   Dev Containers extension for VS Code & Zed allows container-based development.
 #
 #   SECURITY NOTE: Adding user to the docker group grants privileges equivalent
 #   to root access. Only add trusted users to the docker group. Users in the
@@ -257,7 +272,7 @@ section_docker() {
 }
 
 ################################################################################
-#              SECTION 9: GIT CONFIGURATION
+#              SECTION 8: GIT CONFIGURATION
 #
 #   Git is configured with the username and email set at the top of the script.
 ################################################################################
@@ -288,7 +303,7 @@ section_git_config() {
 }
 
 ################################################################################
-#              SECTION 10: SYSTEM CUSTOMIZATION
+#              SECTION 9: SYSTEM CUSTOMIZATION
 #
 #   Sets hostname and performs final updates.
 ################################################################################
@@ -329,7 +344,7 @@ section_customization() {
 }
 
 ################################################################################
-#              SECTION 11: INSTALLATION COMPLETE - SUMMARY
+#              SECTION 10: INSTALLATION COMPLETE - SUMMARY
 ################################################################################
 
 section_summary() {
@@ -363,6 +378,7 @@ main() {
     section_build_tools
     section_flatpak
     section_mullvad_vpn
+    section_zed_editor
     section_python
     section_docker
     section_git_config
