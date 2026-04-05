@@ -2,13 +2,11 @@
 
 ################################################################################
 #                   FEDORA DEVELOPER SETUP SCRIPT
-#                   
-#   A comprehensive installation script for Fedora Linux developers
-#   Includes: Node.js (NVM), Python, Docker, VS Code,
-#   and essential development tools
+#
+#   An installation script for Fedora Linux
 #
 #   Usage: chmod +x install.sh && bash install.sh
-#   Tested on: Fedora 39+
+#   Tested on: Fedora 43
 #
 ################################################################################
 
@@ -69,11 +67,11 @@ check_root() {
 
 section_system_updates() {
     print_section "SYSTEM UPDATES & RPM FUSION"
-    
+
     print_info "Updating system packages..."
     dnf upgrade -y
     print_success "System updated"
-    
+
     print_info "Installing RPM Fusion repositories..."
     dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
                       https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
@@ -86,7 +84,7 @@ section_system_updates() {
 
 section_build_tools() {
     print_section "ESSENTIAL SOFTWARES"
-    
+
     print_info "Installing essential softwares..."
     dnf install -y \
         gcc \
@@ -100,7 +98,7 @@ section_build_tools() {
         zsh \
         curl \
         wget
-    
+
     print_info "Initializing Git LFS..."
     sudo -u "$SUDO_USER" git lfs install
     print_success "Git LFS initialized"
@@ -112,11 +110,11 @@ section_build_tools() {
 
 section_flatpak() {
     print_section "FLATPAK & FLATHUB SETUP"
-    
+
     print_info "Adding Flathub repository..."
     flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     print_success "Flathub added"
-    
+
     print_info "Installing Flatpak applications..."
     flatpak install -y flathub \
         io.github.kolunmi.Bazaar \
@@ -137,7 +135,6 @@ section_flatpak() {
         org.kde.kdenlive \
         io.freetubeapp.FreeTube \
         com.github.Matoking.protontricks \
-        dev.zed.Zed \
         com.usebruno.Bruno \
         org.godotengine.Godot \
         fr.handbrake.ghb \
@@ -145,13 +142,9 @@ section_flatpak() {
     print_success "Core Flatpak applications installed"
 }
 
-################################################################################
-#           SECTION 4: OPTIONAL FLATPAK APPLICATIONS
-#
 #   Uncomment the apps you need, otherwise keep commented.
-################################################################################
-
-#     print_info "Installing optional Flatpak applications..."
+#
+#     flatpak install flathub dev.zed.Zed
 #
 #     flatpak install flathub org.fedoraproject.MediaWriter
 #
@@ -174,11 +167,9 @@ section_flatpak() {
 #     flatpak install flathub com.protonvpn.www
 #
 #     flatpak install flathub com.visualstudio.code
-#
-#     print_success "Optional Flatpak applications installed"
 
 ################################################################################
-#              SECTION 5: MULLVAD VPN
+#              SECTION 4: MULLVAD VPN
 #
 #   Mullvad is an open-source, privacy-focused VPN provider.
 #   Install from official Mullvad repository for security and automatic updates.
@@ -199,42 +190,23 @@ section_mullvad_vpn() {
 }
 
 ################################################################################
-#              SECTION 6: NODE.JS (NVM - NODE VERSION MANAGER)
+#              SECTION 5: ZED EDITOR
 #
-#   NVM allows you to manage multiple Node.js versions simultaneously.
-#   Essential for working on projects with different Node requirements.
-#   
-#   Why NVM over direct installation:
-#   - Switch versions instantly: nvm use 20 vs nvm use 18
-#   - Per-project version control (.nvmrc files)
-#   - Easier to test across versions
-#   - Isolated from system Node (if any)
-#   - Industry standard for JavaScript developers
-#
-#   This installation includes Node.js, npm, and npx automatically.
-#   Next.js will be installed as a project dependency, not system-wide.
+#   Zed is a minimal code editor crafted for speed.
+#   Install from official Zed repository for security and automatic updates.
 ################################################################################
 
-section_node_nvm() {
-    print_section "NODE.JS VIA NVM (NODE VERSION MANAGER)"
-    
-    print_info "Installing NVM (Node Version Manager)..."
-    sudo -u "$SUDO_USER" bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash'
-    print_success "NVM installed"
-    
-    print_info "Installing Node.js LTS via NVM..."
-    sudo -u "$SUDO_USER" bash -c 'source $HOME/.nvm/nvm.sh && nvm install --lts && nvm use --lts && nvm alias default node'
-    print_success "Node.js LTS installed"
-    
-    print_info "Verifying Node.js installation..."
-    sudo -u "$SUDO_USER" bash -c 'source $HOME/.nvm/nvm.sh && node --version && npm --version && npx --version'
-    print_success "Node.js verified"
-    
-    print_info "NVM is now available. Next.js can be installed with: npx create-next-app@latest"
+section_zed_editor() {
+    print_section "ZED EDITOR"
+
+    print_info "Installing Zed editor..."
+    sudo -u "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
+    print_success "Zed installed"
 }
 
+
 ################################################################################
-#              SECTION 7: PYTHON 3 WITH PIP & VENV
+#              SECTION 6: PYTHON 3 WITH PIP & VENV
 #
 #   Python 3 with virtual environment support for isolated project dependencies.
 #   Essential for scripting, data science, and automation tasks.
@@ -257,13 +229,12 @@ section_python() {
     print_success "Python verified"
 }
 
-
 ################################################################################
-#              SECTION 8: DOCKER & DOCKER COMPOSE
+#              SECTION 7: DOCKER & DOCKER COMPOSE
 #
 #   Docker enables containerized development and testing.
 #   Auto-start daemon is configured to run on boot.
-#   Dev Containers extension for VS Code allows container-based development.
+#   Dev Containers extension for VS Code & Zed allows container-based development.
 #
 #   SECURITY NOTE: Adding user to the docker group grants privileges equivalent
 #   to root access. Only add trusted users to the docker group. Users in the
@@ -274,148 +245,78 @@ section_python() {
 
 section_docker() {
     print_section "DOCKER & DOCKER COMPOSE"
-    
+
     print_info "Installing Docker..."
     dnf install -y docker docker-compose
     print_success "Docker installed"
-    
+
     print_warning "SECURITY: Adding user to docker group grants root-level privileges."
     print_warning "Only add trusted users. For more info: https://docs.docker.com/engine/install/linux-postinstall/"
-    
+
     print_info "Adding current user to docker group..."
     usermod -aG docker "$SUDO_USER"
     print_success "User added to docker group (restart shell to take effect)"
-    
+
     print_info "Enabling and starting Docker daemon..."
     systemctl enable docker
     systemctl start docker
     print_success "Docker daemon enabled and started"
-    
+
     print_info "Verifying Docker installation..."
     docker --version
     docker-compose --version
     print_success "Docker verified"
-    
+
     print_warning "You may need to restart your shell for group changes to take effect"
     print_warning "Or run: newgrp docker"
 }
 
 ################################################################################
-#              SECTION 9: VS CODE WITH MICROSOFT REPOSITORY
-#
-#   VS Code is installed directly from Microsoft's official RPM repository
-#   for automatic updates. Telemetry is disabled by default.
-#   Dev Containers extension is installed for container-based development.
-################################################################################
-
-section_vscode() {
-    print_section "VS CODE WITH MICROSOFT REPOSITORY"
-
-    # ── Repository setup ──
-    print_info "Adding Microsoft repository..."
-    rpm --import https://packages.microsoft.com/keys/microsoft.asc
-
-    cat > /etc/yum.repos.d/vscode.repo << EOF
-[code]
-name=Visual Studio Code
-baseurl=https://packages.microsoft.com/yumrepos/vscode
-enabled=1
-autorefresh=1
-type=rpm-md
-gpgcheck=1
-gpgkey=https://packages.microsoft.com/keys/microsoft.asc
-EOF
-
-    # ── Install ──
-    print_info "Installing VS Code..."
-    dnf install -y code
-    print_success "VS Code installed"
-
-    # ── Extensions ──
-    print_info "Installing Dev Containers extension..."
-    sudo -u "$SUDO_USER" code --install-extension ms-vscode-remote.remote-containers \
-        || print_warning "Extension install may require VS Code to be launched first"
-
-    # ── Telemetry (rerunnable: only adds if not already present) ──
-    USER_HOME=$(eval echo "~$SUDO_USER")
-    VSCODE_SETTINGS_DIR="$USER_HOME/.config/Code/User"
-    VSCODE_SETTINGS_FILE="$VSCODE_SETTINGS_DIR/settings.json"
-    sudo -u "$SUDO_USER" mkdir -p "$VSCODE_SETTINGS_DIR"
-
-    if [[ ! -f "$VSCODE_SETTINGS_FILE" ]]; then
-        cat > "$VSCODE_SETTINGS_FILE" << 'EOF'
-{
-  "telemetry.telemetryLevel": "off"
-}
-EOF
-        chown "$SUDO_USER":"$SUDO_USER" "$VSCODE_SETTINGS_FILE"
-        print_success "VS Code settings created with telemetry disabled"
-
-    elif grep -q '"telemetry.telemetryLevel"' "$VSCODE_SETTINGS_FILE"; then
-        print_info "Telemetry setting already present in settings.json, skipping"
-
-    else
-        python3 -c "
-import json, sys
-path = sys.argv[1]
-with open(path) as f:
-    data = json.load(f)
-data['telemetry.telemetryLevel'] = 'off'
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-" "$VSCODE_SETTINGS_FILE"
-        chown "$SUDO_USER":"$SUDO_USER" "$VSCODE_SETTINGS_FILE"
-        print_success "Telemetry setting injected into existing settings.json"
-    fi
-}
-
-################################################################################
-#              SECTION 10: GIT CONFIGURATION
+#              SECTION 8: GIT CONFIGURATION
 #
 #   Git is configured with the username and email set at the top of the script.
 ################################################################################
 
 section_git_config() {
     print_section "GIT CONFIGURATION"
-    
+
     # Validate that user changed the default values
     if [[ "$GIT_USERNAME" == "Your Name" ]] || [[ "$GIT_EMAIL" == "your.email@example.com" ]]; then
         print_warning "Git configuration variables have default values!"
         print_warning "Please edit this script and set GIT_USERNAME and GIT_EMAIL before running."
         print_info "Continuing with default values (you can change them later with git config)"
     fi
-    
+
     print_info "Configuring Git..."
     sudo -u "$SUDO_USER" git config --global user.name "$GIT_USERNAME"
     sudo -u "$SUDO_USER" git config --global user.email "$GIT_EMAIL"
     sudo -u "$SUDO_USER" git config --global pull.rebase false
     sudo -u "$SUDO_USER" git config --global init.defaultBranch main
     print_success "Git configured"
-    
+
     print_info "Git configuration:"
     sudo -u "$SUDO_USER" git config --global --list | grep -E "user\.|pull\.|init\."
-    
+
     print_info "To update Git config later, run:"
     echo "  git config --global user.name 'Your Name'"
     echo "  git config --global user.email 'your.email@example.com'"
 }
 
 ################################################################################
-#              SECTION 11: SYSTEM CUSTOMIZATION
+#              SECTION 9: SYSTEM CUSTOMIZATION
 #
 #   Sets hostname and performs final updates.
 ################################################################################
 
 section_customization() {
     print_section "SYSTEM CUSTOMIZATION"
-    
+
     # Interactive hostname selection menu
     print_info "Select your system type (for hostname):"
     echo "  1) fedora-desktop"
     echo "  2) fedora-laptop"
     read -p "Enter choice [1-2]: " HOSTNAME_CHOICE
-    
+
     case $HOSTNAME_CHOICE in
         1)
             FINAL_HOSTNAME="fedora-desktop"
@@ -428,14 +329,14 @@ section_customization() {
             FINAL_HOSTNAME="fedora-desktop"
             ;;
     esac
-    
+
     print_info "Setting hostname to: $FINAL_HOSTNAME"
     if hostnamectl set-hostname "$FINAL_HOSTNAME"; then
         print_success "Hostname set to: $FINAL_HOSTNAME"
     else
         print_error "Failed to set hostname. This may require reboot to take effect."
     fi
-    
+
     print_info "Running final system updates..."
     dnf upgrade -y
     flatpak update -y
@@ -443,7 +344,286 @@ section_customization() {
 }
 
 ################################################################################
-#              SECTION 12: INSTALLATION COMPLETE - SUMMARY
+#              SECTION 10: DEV CONTAINERS
+#
+#   Installs the devcontainer CLI and scaffolds a reusable template at
+#   ~/.dotfiles/devcontainer-template/.devcontainer/ containing:
+#     - devcontainer.json  (VS Code extensions, port forwarding, remoteUser)
+#     - docker-compose.yml (app + PostgreSQL + MySQL + Redis + MongoDB)
+#
+#   To use the template in a project:
+#     cp -r ~/.dotfiles/devcontainer-template/.devcontainer /path/to/your/project/
+#   Then open the project in VS Code and run:
+#     "Dev Containers: Reopen in Container"
+#
+#   SECURITY NOTE: Database credentials are for LOCAL DEVELOPMENT ONLY.
+#   Never use them in production or any network-exposed environment.
+#
+################################################################################
+
+section_devcontainers() {
+    print_section "DEV CONTAINERS"
+
+    TEMPLATE_DIR="/home/$SUDO_USER/.dotfiles/devcontainer-template/.devcontainer"
+    print_info "Creating template directory at $TEMPLATE_DIR..."
+    mkdir -p "$TEMPLATE_DIR"
+
+    # ── devcontainer.json ────────────────────────────────────────────────────
+    print_info "Writing devcontainer.json..."
+    cat > "$TEMPLATE_DIR/devcontainer.json" << 'DEVCONTAINER_JSON'
+{
+  "name": "Universal Dev Environment",
+
+  // Use docker-compose to start the dev container + all database services together
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+
+  // NOTE: .ssh and .gitconfig mounts are defined in docker-compose.yml
+  // under the "app" service volumes. Do NOT duplicate them here — when VS Code
+  // uses dockerComposeFile mode it merges both, causing mount conflicts.
+  // If you switch to a single-container setup (no docker-compose), uncomment these:
+  // "mounts": [
+  //   "source=${localEnv:HOME}/.ssh,target=/home/dev/.ssh,type=bind,readonly",
+  //   "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,readonly"
+  // ],
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // General
+        "eamodio.gitlens",
+        "streetsidesoftware.code-spell-checker",
+        "EditorConfig.EditorConfig",
+
+        // Python
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+
+        // JS / TS
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+
+        // Rust
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+
+        // Go
+        "golang.go",
+
+        // Java / Kotlin
+        "redhat.java",
+        "vscjava.vscode-java-pack",
+        "fwcd.kotlin",
+
+        // Scala
+        "scala-lang.scala",
+        "scalameta.metals",
+
+        // Flutter / Dart
+        "Dart-Code.dart-code",
+        "Dart-Code.flutter",
+
+        // C / C++
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+
+        // Docker / Infra
+        "ms-azuretools.vscode-docker",
+        "HashiCorp.terraform",
+        "redhat.ansible",
+
+        // Swift
+        "sswg.swift-lang",
+
+        // Ruby
+        "Shopify.ruby-lsp",
+
+        // PHP
+        "bmewburn.vscode-intelephense-client",
+
+        // Lua
+        "sumneko.lua",
+
+        // .NET / C#
+        "ms-dotnettools.csharp",
+        "ms-dotnettools.csdevkit"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": true,
+        "editor.rulers": [100],
+        "python.defaultInterpreterPath": "/home/dev/.pyenv/shims/python"
+      }
+    }
+  },
+
+  "remoteUser": "dev",
+
+  // Runs on the HOST before the container starts. Ensures ~/.gitconfig and
+  // ~/.ssh exist. Without this, Docker bind-mounts a non-existent path as an
+  // empty directory, breaking git inside the container.
+  "initializeCommand": "[ -d ~/.gitconfig ] && rm -rf ~/.gitconfig; mkdir -p ~/.ssh; touch ~/.gitconfig",
+
+  "runArgs": ["--shm-size=2gb"],
+
+  // Ports forwarded from the container to the host.
+  // Database ports (5432, 3306, etc.) are on separate service containers —
+  // forwarding is handled by docker-compose "ports:" mappings.
+  "forwardPorts": [
+    3000,   // React / Next.js / Vue / Svelte
+    4000,   // Misc backend
+    5000,   // Flask
+    8000,   // Django / FastAPI
+    8080,   // General HTTP
+    8888,   // Jupyter
+    5432,   // PostgreSQL
+    3306,   // MySQL
+    6379,   // Redis
+    27017   // MongoDB
+  ],
+
+  "portsAttributes": {
+    "3000": { "label": "Frontend" },
+    "8000": { "label": "Backend" },
+    "8080": { "label": "HTTP" },
+    "5432": { "label": "PostgreSQL" },
+    "3306": { "label": "MySQL" },
+    "6379": { "label": "Redis" },
+    "27017": { "label": "MongoDB" }
+  }
+}
+DEVCONTAINER_JSON
+    print_success "devcontainer.json written"
+
+    # ── docker-compose.yml ───────────────────────────────────────────────────
+    print_info "Writing docker-compose.yml..."
+    cat > "$TEMPLATE_DIR/docker-compose.yml" << 'DOCKER_COMPOSE_YML'
+# SECURITY WARNING: Credentials below are for LOCAL DEVELOPMENT ONLY.
+# Never use them in production, staging, or any network-exposed environment.
+services:
+
+  # ─── Dev container ──────────────────────────────────────────────────────────
+  app:
+    image: ghcr.io/ajwadtahmid/devenv:latest  # <-- replace with your username
+    volumes:
+      - ..:/workspace:cached               # Project root (one level up from .devcontainer/)
+      - ~/.ssh:/home/dev/.ssh:ro           # SSH keys for git over SSH
+      - ~/.gitconfig:/home/dev/.gitconfig:ro
+    command: sleep infinity                # Keep the container alive
+    environment:
+      - POSTGRES_URL=postgresql://dev:dev@postgres:5432/devdb
+      - MYSQL_URL=mysql://dev:dev@mysql:3306/devdb
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://dev:dev@mongo:27017/devdb
+      - SQLITE_PATH=/workspace/db.sqlite3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: devdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d devdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── MySQL ──────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootdev
+      MYSQL_USER: dev
+      MYSQL_PASSWORD: dev
+      MYSQL_DATABASE: devdb
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      # Using MYSQL_PWD avoids the "password on command line is insecure" warning
+      test: ["CMD-SHELL", "MYSQL_PWD=dev mysqladmin ping -h localhost -u dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass dev
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: dev
+      MONGO_INITDB_ROOT_PASSWORD: dev
+      MONGO_INITDB_DATABASE: devdb
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "127.0.0.1:27017:27017"
+    healthcheck:
+    test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# ─── Named volumes ─────────────────────────────────────────────────────────────
+# To wipe a database and start fresh, delete its volume:
+#   docker volume rm .devcontainer_postgres_data
+volumes:
+  postgres_data:
+  mysql_data:
+  redis_data:
+  mongo_data:
+DOCKER_COMPOSE_YML
+    print_success "docker-compose.yml written"
+
+    chown -R "$SUDO_USER:$SUDO_USER" "/home/$SUDO_USER/.dotfiles"
+    print_success "Ownership set for ~/.dotfiles"
+
+    print_info "To use: cp -r ~/.dotfiles/devcontainer-template/.devcontainer /your/project/"
+    print_info "Then in VS Code: 'Dev Containers: Reopen in Container'"
+}
+
+################################################################################
+#              SECTION 11: INSTALLATION COMPLETE - SUMMARY
 ################################################################################
 
 section_summary() {
@@ -472,17 +652,17 @@ section_summary() {
 main() {
     print_info "Starting Fedora Developer Setup..."
     check_root
-    
+
     section_system_updates
     section_build_tools
     section_flatpak
     section_mullvad_vpn
-    section_node_nvm
+    section_zed_editor
     section_python
     section_docker
-    section_vscode
     section_git_config
     section_customization
+    section_devcontainers
     section_summary
 }
 
