@@ -7,7 +7,7 @@
 #   Includes: Node.js (NVM), Java, Maven, Rust, Docker, databases, 
 #   VS Code, and essential development tools
 #
-#   Usage: bash install.sh
+#   Usage: chmod +x install.sh && bash install.sh
 #   Tested on: Fedora 39+
 #
 ################################################################################
@@ -123,6 +123,7 @@ section_build_tools() {
         zsh \
         curl \
         wget
+
     print_success "Build tools installed"
     
     print_info "Initializing Git LFS..."
@@ -198,7 +199,7 @@ section_flatpak_applications() {
 }
 
 ################################################################################
-#          SECTION 5: JAVA 21 LTS & JAVA 17 + 11 WITH MAVEN
+#          SECTION 5: JAVA 21 LTS & JAVA 25 WITH MAVEN
 #
 #   JAVA_HOME:  Points to the Java installation (/usr/lib/jvm/java-XX-openjdk)
 #               Used by: Maven, IDEs, build tools, Docker, applications
@@ -213,38 +214,36 @@ section_flatpak_applications() {
 ################################################################################
 
 section_java_maven() {
-    print_section "JAVA 21 LTS, 17 & 11 WITH MAVEN"
-    
+    print_section "JAVA 21 LTS & 25 WITH MAVEN"
+
     print_info "Installing Java 21 LTS (default)..."
     dnf install -y java-21-openjdk java-21-openjdk-devel
     print_success "Java 21 LTS installed"
-    
-    print_info "Installing Java 17..."
-    dnf install -y java-17-openjdk java-17-openjdk-devel
-    print_success "Java 17 installed"
-    
-    print_info "Installing Java 11 (legacy compatibility)..."
-    dnf install -y java-11-openjdk java-11-openjdk-devel
-    print_success "Java 11 installed"
-    
-    print_info "Setting Java 21 as default..."
+
+    print_info "Installing Java 25 (latest)..."
+    dnf install -y java-25-openjdk java-25-openjdk-devel
+    print_success "Java 25 installed"
+
+    print_info "Setting Java 21 LTS as default..."
     update-alternatives --install /usr/bin/java java /usr/lib/jvm/java-21-openjdk/bin/java 1
     update-alternatives --install /usr/bin/javac javac /usr/lib/jvm/java-21-openjdk/bin/javac 1
     update-alternatives --set java /usr/lib/jvm/java-21-openjdk/bin/java
     update-alternatives --set javac /usr/lib/jvm/java-21-openjdk/bin/javac
-    print_success "Java 21 set as default"
-    
-    print_warning "To switch to Java 17 or 11, run: sudo update-alternatives --config java"
-    
+    print_success "Java 21 LTS set as default"
+
+    print_warning "To switch between Java versions, run: sudo update-alternatives --config java"
+
     print_info "Installing Maven (latest)..."
     dnf install -y maven
     print_success "Maven installed"
-    
+
     # Set JAVA_HOME and M2_HOME in ~/.bashrc
     print_info "Configuring JAVA_HOME and M2_HOME environment variables..."
-    
-    BASHRC="$HOME/.bashrc"
-    
+
+    # Use actual user home, not root's home
+    REAL_HOME=$(eval echo ~$SUDO_USER)
+    BASHRC="$REAL_HOME/.bashrc"
+
     # Check if already set
     if ! grep -q "export JAVA_HOME" "$BASHRC" 2>/dev/null; then
         cat >> "$BASHRC" << 'EOF'
@@ -252,7 +251,9 @@ section_java_maven() {
 # ============= JAVA & MAVEN CONFIGURATION =============
 # JAVA_HOME: Points to Java installation directory
 #   - Used by Maven, IDEs, and build tools to find the Java compiler
-#   - Change to /usr/lib/jvm/java-17-openjdk or /usr/lib/jvm/java-11-openjdk to use other versions
+#   - Default: Java 21 LTS
+#   - Alternatives: /usr/lib/jvm/java-25-openjdk (Java 25)
+#   - Switch versions: sudo update-alternatives --config java
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
 
 # M2_HOME: Points to Maven installation directory
@@ -267,11 +268,11 @@ EOF
     else
         print_warning "Environment variables already exist in ~/.bashrc, skipping"
     fi
-    
+
     print_info "Verifying Java installation..."
     java -version
     print_success "Java verified"
-    
+
     print_info "Verifying Maven installation..."
     mvn --version
     print_success "Maven verified"
@@ -290,14 +291,42 @@ EOF
 
 section_spring_boot_cli() {
     print_section "SPRING BOOT CLI"
-    
-    print_info "Installing Spring Boot CLI..."
-    dnf install -y spring-boot-cli
+
+    # Get actual user home
+    REAL_HOME=$(eval echo ~$SUDO_USER)
+    SDKMAN_DIR="$REAL_HOME/.sdkman"
+
+    # Check if SDKMAN already installed
+    if [[ ! -d "$SDKMAN_DIR" ]]; then
+        print_info "Installing SDKMAN (Software Development Kit Manager)..."
+        sudo -u "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
+        print_success "SDKMAN installed"
+    else
+        print_info "SDKMAN already installed"
+    fi
+
+    print_info "Installing Spring Boot CLI via SDKMAN..."
+    # Source SDKMAN and install Spring Boot
+    sudo -u "$SUDO_USER" bash -c 'source "$HOME/.sdkman/bin/sdkman-init.sh" && sdk install springboot'
     print_success "Spring Boot CLI installed"
-    
+
     print_info "Verifying Spring Boot CLI..."
-    spring --version
-    print_success "Spring Boot CLI verified"
+    set +e
+    version_output=$(sudo -u "$SUDO_USER" bash -c 'source "$HOME/.sdkman/bin/sdkman-init.sh" && spring --version' 2>&1)
+    version_result=$?
+    set -e
+
+    if [[ $version_result -eq 0 ]]; then
+        echo "$version_output"
+        print_success "Spring Boot CLI verified"
+    else
+        print_warning "Spring Boot CLI verification may need shell restart"
+        echo "Output: $version_output"
+    fi
+
+    print_info "SDKMAN also manages other tools: Java, Gradle, Maven, etc."
+    echo "  View available tools: sdk list"
+    echo "  Install a tool: sdk install <tool-name>"
 }
 
 ################################################################################
@@ -309,23 +338,18 @@ section_spring_boot_cli() {
 
 section_mullvad_vpn() {
     print_section "MULLVAD VPN"
-    
+
     print_info "Adding Mullvad repository..."
-    dnf install -y https://repository.mullvad.net/fedora/mullvad-latest.fc$(rpm -E %fedora).noarch.rpm
+    dnf config-manager addrepo --from-repofile=https://repository.mullvad.net/rpm/stable/mullvad.repo --overwrite
     print_success "Mullvad repository added"
-    
+
     print_info "Installing Mullvad VPN..."
-    dnf install -y mullvad
+    dnf install -y mullvad-vpn
     print_success "Mullvad VPN installed"
-    
-    print_info "Starting Mullvad service..."
-    systemctl enable mullvad-daemon
-    systemctl start mullvad-daemon
-    print_success "Mullvad VPN service enabled and started"
-    
-    print_info "Mullvad VPN is installed. Launch with: mullvad"
+
     print_info "Official site: https://mullvad.net"
 }
+
 
 ################################################################################
 #              SECTION 7: NODE.JS (NVM - NODE VERSION MANAGER)
@@ -381,20 +405,28 @@ section_node_nvm() {
 
 section_rust() {
     print_section "RUST & CARGO"
-    
+
     print_info "Installing Rust via rustup..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    
-    # Source Rust in current shell
-    source "$HOME/.cargo/env"
-    
+
+    # Get the actual user's home directory
+    USER_HOME=$(eval echo "~$SUDO_USER")
+
+    # Install Rust as the actual user, not root
+    sudo -u "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+
     print_success "Rust installed"
-    
+
     print_info "Verifying Rust installation..."
-    rustc --version
-    cargo --version
+
+    # Verify using the user's Rust installation
+    sudo -u "$SUDO_USER" bash -c 'source $HOME/.cargo/env && rustc --version'
+    sudo -u "$SUDO_USER" bash -c 'source $HOME/.cargo/env && cargo --version'
+
     print_success "Rust verified"
+
+    print_info "Rust installation location: $USER_HOME/.cargo"
 }
+
 
 ################################################################################
 #              SECTION 9: PYTHON 3 WITH PIP & VENV
@@ -405,20 +437,27 @@ section_rust() {
 
 section_python() {
     print_section "PYTHON 3 WITH PIP & VENV"
-    
+
     print_info "Installing Python 3 with development tools..."
-    dnf install -y python3 python3-pip python3-devel python3-venv
+    dnf install -y python3 python3-pip python3-devel
     print_success "Python 3 installed"
-    
+
+    # Check if venv is available, install if needed
+    if ! python3 -m venv --help &>/dev/null; then
+        print_info "Installing python3-venv..."
+        dnf install -y python3-venv || print_warning "python3-venv not available in repos"
+    fi
+
     print_info "Upgrading pip..."
     python3 -m pip install --upgrade pip
     print_success "pip upgraded"
-    
+
     print_info "Verifying Python installation..."
     python3 --version
     pip3 --version
     print_success "Python verified"
 }
+
 
 ################################################################################
 #              SECTION 10: DOCKER & DOCKER COMPOSE
@@ -465,60 +504,64 @@ section_docker() {
 ################################################################################
 #              SECTION 11: DATABASES
 #
-#   PostgreSQL, MongoDB, and MariaDB are essential for full-stack development.
+#   PostgreSQL and MariaDB are essential for full-stack development.
 #   All configured to auto-start on boot.
 ################################################################################
 
 section_databases() {
-    print_section "DATABASE SERVERS (POSTGRESQL, MONGODB, MARIADB)"
-    
+    print_section "DATABASE SERVERS (POSTGRESQL, MARIADB)"
+
     print_info "Installing PostgreSQL server and client..."
-    dnf install -y postgresql postgresql-server postgresql-contrib
-    
+    dnf install -y --skip-unavailable postgresql postgresql-server postgresql-contrib
+
     # Check if PostgreSQL database is already initialized
     if [[ ! -d /var/lib/pgsql/data ]]; then
         print_info "Initializing PostgreSQL database..."
+        set +e
         postgresql-setup initdb
+        initdb_result=$?
+        set -e
+
+        if [[ $initdb_result -eq 0 ]]; then
+            print_success "PostgreSQL database initialized"
+        else
+            print_warning "PostgreSQL initialization encountered an issue, continuing..."
+        fi
     else
         print_info "PostgreSQL database already initialized, skipping initdb"
     fi
-    
+
     systemctl enable postgresql
-    systemctl start postgresql
+
+    # Start PostgreSQL with timeout
+    print_info "Starting PostgreSQL..."
+    timeout 30 systemctl start postgresql || print_warning "PostgreSQL start timed out or failed, continuing..."
+    sleep 2  # Give it a moment to stabilize
     print_success "PostgreSQL installed and configured"
-    
-    print_info "Installing MongoDB server..."
-    dnf install -y mongodb-server mongodb-mongosh
-    systemctl enable mongod
-    systemctl start mongod
-    print_success "MongoDB installed and configured"
-    
-    print_warning "SECURITY: MongoDB is installed without authentication enabled by default."
-    print_warning "For production use, enable authentication: https://docs.mongodb.com/manual/tutorial/enable-authentication/"
-    
+
     print_info "Installing MariaDB server..."
-    dnf install -y mariadb-server
-    
-    # MariaDB auto-setup (non-interactive)
+    dnf install -y --skip-unavailable mariadb-server
+
     systemctl enable mariadb
-    systemctl start mariadb
+
+    # Start MariaDB with timeout
+    print_info "Starting MariaDB..."
+    timeout 30 systemctl start mariadb || print_warning "MariaDB start timed out or failed, continuing..."
+    sleep 2  # Give it a moment to stabilize
     print_success "MariaDB installed and configured"
-    
+
     print_warning "SECURITY: MariaDB root password is not set. For security, run: sudo mysql_secure_installation"
-    
+
     print_info "Quick start commands:"
     echo "  PostgreSQL:"
     echo "    psql -U postgres                    # Connect to PostgreSQL"
     echo "    sudo systemctl status postgresql    # Check status"
     echo ""
-    echo "  MongoDB:"
-    echo "    mongosh                             # Connect to MongoDB"
-    echo "    sudo systemctl status mongod        # Check status"
-    echo ""
     echo "  MariaDB:"
     echo "    sudo mysql -u root                  # Connect to MariaDB"
     echo "    sudo systemctl status mariadb       # Check status"
 }
+
 
 ################################################################################
 #              SECTION 12: VS CODE WITH MICROSOFT REPOSITORY
@@ -530,10 +573,10 @@ section_databases() {
 
 section_vscode() {
     print_section "VS CODE WITH MICROSOFT REPOSITORY"
-    
+
     print_info "Adding Microsoft's VS Code repository..."
     rpm --import https://packages.microsoft.com/keys/microsoft.asc
-    
+
     cat > /etc/yum.repos.d/vscode.repo << EOF
 [code]
 name=Visual Studio Code
@@ -543,11 +586,11 @@ gpgcheck=1
 gpgkey=https://packages.microsoft.com/keys/microsoft.asc
 EOF
     print_success "Microsoft repository added"
-    
+
     print_info "Installing VS Code..."
     dnf install -y code
     print_success "VS Code installed"
-    
+
     # Wait for code binary to be available
     print_info "Waiting for VS Code binary to be available..."
     for i in {1..30}; do
@@ -561,20 +604,24 @@ EOF
         fi
         sleep 1
     done
-    
+
+    # Get the actual user's home directory
+    USER_HOME=$(eval echo "~$SUDO_USER")
+
     print_info "Installing Dev Containers extension..."
     sudo -u "$SUDO_USER" code --install-extension ms-vscode-remote.remote-containers || print_warning "Dev Containers extension installation may require VS Code to be run manually"
     print_success "Dev Containers extension installation attempted"
-    
+
     print_info "Disabling telemetry..."
-    sudo -u "$SUDO_USER" mkdir -p "$HOME/.config/Code/User"
-    cat >> "$HOME/.config/Code/User/settings.json" << 'EOF'
+    sudo -u "$SUDO_USER" mkdir -p "$USER_HOME/.config/Code/User"
+    cat >> "$USER_HOME/.config/Code/User/settings.json" << 'EOF'
 {
   "telemetry.telemetryLevel": "off"
 }
 EOF
     print_success "Telemetry disabled (telemetry.telemetryLevel: off)"
 }
+
 
 ################################################################################
 #              SECTION 13: GIT CONFIGURATION
@@ -651,94 +698,226 @@ section_customization() {
 }
 
 ################################################################################
-#              SECTION 15: INSTALLATION COMPLETE - SUMMARY
+#              SECTION 15: FLUTTER SDK
+#
+#   Flutter is Google's UI framework for building multi-platform apps.
+#   Cloned from official Flutter GitHub stable branch.
+#   Requires Android Studio for Android development (manual installation).
+#   Reference: https://docs.flutter.dev/install/manual
+################################################################################
+
+section_flutter() {
+    print_section "FLUTTER SDK"
+
+    print_info "Setting up Brave as CHROME_EXECUTABLE..."
+    export CHROME_EXECUTABLE=/var/lib/flatpak/exports/bin/com.brave.Browser
+
+    # CRITICAL FIX: Use actual user home, not root's home
+    REAL_HOME=$(eval echo ~$SUDO_USER)
+    FLUTTER_HOME="$REAL_HOME/.flutter"
+    BASHRC="$REAL_HOME/.bashrc"
+
+    print_info "Setting up Flutter SDK from GitHub stable branch..."
+    print_info "User home: $REAL_HOME"
+    print_info "Flutter home: $FLUTTER_HOME"
+
+    if [[ -d "$FLUTTER_HOME" ]]; then
+        print_info "Flutter directory exists, checking if it's a valid Git repository..."
+
+        # Check if it's a valid git repo with .git directory
+        if [[ -d "$FLUTTER_HOME/.git" ]]; then
+            print_info "Valid Flutter Git repository found, updating to latest stable..."
+
+            set +e
+            sudo -u "$SUDO_USER" git -C "$FLUTTER_HOME" fetch origin stable 2>/dev/null
+            fetch_result=$?
+
+            if [[ $fetch_result -eq 0 ]]; then
+                sudo -u "$SUDO_USER" git -C "$FLUTTER_HOME" checkout stable
+                sudo -u "$SUDO_USER" git -C "$FLUTTER_HOME" pull origin stable
+                pull_result=$?
+
+                if [[ $pull_result -eq 0 ]]; then
+                    print_success "Flutter updated to latest stable"
+                else
+                    print_warning "Flutter update encountered an issue, continuing..."
+                fi
+            else
+                print_warning "Could not fetch Flutter updates (network issue?), continuing with existing install..."
+            fi
+            set -e
+
+        else
+            print_warning "Flutter directory exists but is not a valid Git repository, removing and re-cloning..."
+
+            # Force remove the directory
+            set +e
+            sudo -u "$SUDO_USER" rm -rf "$FLUTTER_HOME"
+            rm_result=$?
+            set -e
+
+            if [[ $rm_result -eq 0 ]]; then
+                sleep 1  # Give filesystem time to catch up
+
+                print_info "Cloning Flutter from GitHub stable branch..."
+                set +e
+                sudo -u "$SUDO_USER" git clone https://github.com/flutter/flutter.git -b stable "$FLUTTER_HOME"
+                clone_result=$?
+                set -e
+
+                if [[ $clone_result -ne 0 ]]; then
+                    print_error "Failed to clone Flutter repository"
+                    return 1
+                fi
+                print_success "Flutter cloned successfully"
+            else
+                print_error "Failed to remove invalid Flutter directory"
+                return 1
+            fi
+        fi
+
+    else
+        print_info "Cloning Flutter from GitHub stable branch..."
+
+        # Create parent directory with correct permissions
+        sudo -u "$SUDO_USER" mkdir -p "$REAL_HOME"
+
+        set +e
+        sudo -u "$SUDO_USER" git clone https://github.com/flutter/flutter.git -b stable "$FLUTTER_HOME"
+        clone_result=$?
+        set -e
+
+        if [[ $clone_result -ne 0 ]]; then
+            print_error "Failed to clone Flutter repository"
+            return 1
+        fi
+        print_success "Flutter cloned successfully"
+    fi
+
+    # Verify flutter binary exists
+    if [[ ! -f "$FLUTTER_HOME/bin/flutter" ]]; then
+        print_error "Flutter binary not found at $FLUTTER_HOME/bin/flutter"
+        return 1
+    fi
+    print_success "Flutter binary verified"
+
+    # Add Flutter to PATH in user's ~/.bashrc
+    if ! grep -q "export PATH.*\.flutter/bin" "$BASHRC" 2>/dev/null; then
+        echo 'export PATH="$HOME/.flutter/bin:$PATH"' >> "$BASHRC"
+        print_success "Flutter added to PATH in ~/.bashrc"
+    else
+        print_info "Flutter PATH already configured in ~/.bashrc"
+    fi
+
+    # Verify installation by running as the actual user
+    print_info "Verifying Flutter installation..."
+
+    set +e
+    version_output=$(sudo -u "$SUDO_USER" "$FLUTTER_HOME/bin/flutter" --version 2>&1)
+    version_result=$?
+    set -e
+
+    if [[ $version_result -eq 0 ]]; then
+        print_success "Flutter SDK installed successfully"
+        echo "$version_output"
+    else
+        print_warning "Flutter installation may need shell restart to verify"
+        echo "Error: $version_output"
+    fi
+
+    print_success "Flutter SDK setup complete!"
+    print_info "Next steps:"
+    echo "  1. RESTART SHELL: source ~/.bashrc or open new terminal"
+    echo "  2. Run: flutter doctor (shows missing dependencies)"
+    echo "  3. Install Android Studio: https://developer.android.com/studio"
+    echo "  4. Create Flutter app: flutter create my_app"
+    print_info "Keep Flutter updated:"
+    echo "  Run 'flutter upgrade' periodically for latest stable version"
+}
+
+
+################################################################################
+#              SECTION 16: INSTALLATION COMPLETE - SUMMARY
 ################################################################################
 
 section_summary() {
-    print_section "INSTALLATION COMPLETE!"
-    
-    cat << EOF
-${GREEN}════════════════════════════════════════════════════════${NC}
-${GREEN}                   SETUP COMPLETE! 🎉${NC}
-${GREEN}════════════════════════════════════════════════════════${NC}
+    print_section "INSTALLATION COMPLETE"
 
-${BLUE}✓ Installed Components:${NC}
-  Build Tools: gcc, make, cmake, git, git-lfs
-  Java: Java 21 LTS (default) + Java 17 + Java 11
-  Build Tools: Maven, Spring Boot CLI
-  VPN: Mullvad VPN (privacy-focused)
-  Node.js: NVM (Node Version Manager) with npm, npx
-  Languages: Rust (rustup), Python 3 (pip, venv)
-  Containerization: Docker, Docker Compose
-  Databases: PostgreSQL, MongoDB, MariaDB (auto-start)
-  Development: VS Code (Microsoft repo) with Dev Containers
-  Applications: 20+ Flatpak apps including Godot, HandBrake, FreeTube
+    print_success "Installed Components:"
+    echo "  Build Tools  : gcc, make, cmake, git, git-lfs"
+    echo "  Java         : Java 21 LTS (default) + Java 25"
+    echo "  Build Tools  : Maven, Spring Boot CLI"
+    echo "  VPN          : Mullvad VPN"
+    echo "  Node.js      : NVM with Node LTS (npm, npx)"
+    echo "  Languages    : Rust (rustup), Python 3 (pip, venv)"
+    echo "  Containers   : Docker, Docker Compose"
+    echo "  Databases    : PostgreSQL, MariaDB"
+    echo "  Editor       : VS Code (Microsoft repo) + Dev Containers"
+    echo "  Apps         : 20+ Flatpak apps (Godot, HandBrake, FreeTube, ...)"
+    echo ""
 
-${YELLOW}⚠ CRITICAL: Restart Your Shell${NC}
-  Your shell must be restarted for the following to work:
-  ${BLUE}source ~/.bashrc${NC} or ${BLUE}exec bash${NC} or open a new terminal window
-  
-  This is needed for:
-    • NVM (Node Version Manager)
-    • Docker group membership
-    • Updated PATH variables
+    print_warning "Restart your shell before using NVM, Docker, and updated PATH:"
+    echo "  source ~/.bashrc   OR   exec bash   OR   open a new terminal"
+    echo ""
 
-${YELLOW}⚠ Security Notices:${NC}
-  1. Docker: User added to docker group (= root access)
-     Only trust this account with sensitive data
-     https://docs.docker.com/engine/security/rootless/
-  
-  2. MongoDB: Installed WITHOUT authentication by default
-     For production: https://docs.mongodb.com/manual/tutorial/enable-authentication/
-  
-  3. MariaDB: No root password set
-     Run: ${BLUE}sudo mysql_secure_installation${NC}
+    print_info "Switch Java versions:"
+    echo "  sudo update-alternatives --config java"
+    echo "  sudo update-alternatives --config javac"
+    echo "  Default: Java 21 | Available: Java 25"
+    echo ""
 
-${BLUE}🔄 Switch Between Java Versions:${NC}
-  ${BLUE}sudo update-alternatives --config java${NC}
-  ${BLUE}sudo update-alternatives --config javac${NC}
-  Default: Java 21 | Available: Java 17, 11
+    print_info "Git configuration:"
+    echo "  Username : $GIT_USERNAME"
+    echo "  Email    : $GIT_EMAIL"
+    echo "  Update   : git config --global user.name \"Name\""
+    echo ""
 
-${BLUE}📝 Git Configuration:${NC}
-  Username: ${GREEN}${GIT_USERNAME}${NC}
-  Email:    ${GREEN}${GIT_EMAIL}${NC}
-  Config:   ~/.gitconfig
-  Update:   ${BLUE}git config --global user.name "Name"${NC}
+    print_info "System hostname: $FINAL_HOSTNAME"
+    echo ""
 
-${BLUE}🏠 System Hostname:${NC}
-  ${GREEN}${FINAL_HOSTNAME}${NC}
+    print_info "VPN: Mullvad VPN installed. Launch with: mullvad"
+    echo ""
 
-${BLUE}🔐 VPN:${NC}
-  Mullvad VPN installed and running
-  Launch: ${BLUE}mullvad${NC}
+    print_info "Database quick-connect:"
+    echo "  PostgreSQL : psql -U postgres"
+    echo "  MariaDB    : sudo mysql -u root"
+    echo ""
 
-${BLUE}🗄️ Database Access:${NC}
-  PostgreSQL: ${BLUE}psql -U postgres${NC}
-  MongoDB:    ${BLUE}mongosh${NC}
-  MariaDB:    ${BLUE}sudo mysql -u root${NC}
+    print_warning "Security notices:"
+    echo "  1. Docker group = root-level access. Only add trusted users."
+    echo "     Rootless Docker: https://docs.docker.com/engine/security/rootless/"
+    echo "  2. MariaDB root password not set. Run: sudo mysql_secure_installation"
+    echo ""
 
-${BLUE}📁 Environment Variables:${NC}
-  JAVA_HOME=/usr/lib/jvm/java-21-openjdk
-  M2_HOME=/usr/share/maven
-  Added to: ~/.bashrc
+    print_info "Environment variables (in ~/.bashrc):"
+    echo "  JAVA_HOME=/usr/lib/jvm/java-21-openjdk"
+    echo "  M2_HOME=/usr/share/maven"
+    echo ""
 
-${BLUE}🚀 Next Steps:${NC}
-  1. ${YELLOW}Close and reopen your terminal${NC} to activate NVM, Docker, and PATH changes
-  2. Install JetBrains Toolbox (manual)
-      https://www.jetbrains.com/toolbox/
-  3. Install Android Studio (manual, for Flutter/React Native)
-      https://developer.android.com/studio
-  4. Generate SSH key for GitHub/GitLab (optional):
-      ${BLUE}ssh-keygen -t ed25519${NC}
-  5. Verify installations after restarting shell:
-      ${BLUE}node --version${NC}
-      ${BLUE}docker ps${NC}
+    print_warning "Manual steps required after reboot:"
+    echo ""
+    echo "  [PostgreSQL - if initialization failed]"
+    echo "    sudo /usr/bin/postgresql-setup --initdb"
+    echo "    sudo systemctl start postgresql"
+    echo "    sudo journalctl -u postgresql -n 30   # check logs if needed"
+    echo ""
+    echo "  [MariaDB - secure the installation]"
+    echo "    sudo mysql_secure_installation"
+    echo ""
+    echo "  [JetBrains Toolbox - manual install]"
+    echo "    https://www.jetbrains.com/toolbox/"
+    echo ""
+    echo "  [Android Studio - manual install, needed for Flutter/React Native]"
+    echo "    https://developer.android.com/studio"
+    echo ""
+    echo "  [Flutter - after shell restart]"
+    echo "    flutter doctor"
+    echo ""
+    echo "  [SSH key for GitHub/GitLab]"
+    echo "    ssh-keygen -t ed25519"
+    echo ""
 
-${GREEN}════════════════════════════════════════════════════════${NC}
-${GREEN}       Happy coding! Environment ready. 🚀${NC}
-${GREEN}════════════════════════════════════════════════════════${NC}
-
-EOF
+    print_success "Setup complete. Happy coding!"
 }
 
 ################################################################################
@@ -763,6 +942,7 @@ main() {
     section_docker
     section_databases
     section_vscode
+    section_flutter
     section_git_config
     section_customization
     section_summary
