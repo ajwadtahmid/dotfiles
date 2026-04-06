@@ -1,23 +1,20 @@
-version: '3.8'
-
+# SECURITY WARNING: Credentials below are for LOCAL DEVELOPMENT ONLY.
+# Never use them in production, staging, or any network-exposed environment.
 services:
 
-  # ─── Dev container ────────────────────────────────────────────────────────────
+  # ─── Dev container ──────────────────────────────────────────────────────────
   app:
     image: ghcr.io/ajwadtahmid/devenv:latest
     volumes:
       - ..:/workspace:cached               # Project root (one level up from .devcontainer/)
       - ~/.ssh:/home/dev/.ssh:ro           # SSH keys for git over SSH
       - ~/.gitconfig:/home/dev/.gitconfig:ro
-    command: sleep infinity                # Keep the container alive with no foreground process
+    command: sleep infinity                # Keep the container alive
     environment:
-      # Pre-set connection strings so frameworks can find the databases without config
       - POSTGRES_URL=postgresql://dev:dev@postgres:5432/devdb
       - MYSQL_URL=mysql://dev:dev@mysql:3306/devdb
       - REDIS_URL=redis://redis:6379
       - MONGO_URL=mongodb://dev:dev@mongo:27017/devdb
-      # SQLITE_PATH is just a convention — SQLite is a file, not a server.
-      # Your app writes to any path inside /workspace.
       - SQLITE_PATH=/workspace/db.sqlite3
     depends_on:
       postgres:
@@ -29,9 +26,9 @@ services:
       mongo:
         condition: service_healthy
 
-  # ─── PostgreSQL ───────────────────────────────────────────────────────────────
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: dev
@@ -40,14 +37,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"     # Also exposed to host so you can connect with TablePlus / DataGrip
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d devdb"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ─── MySQL ────────────────────────────────────────────────────────────────────
+  # ─── MySQL ──────────────────────────────────────────────────────────────────
   mysql:
     image: mysql:8.4
     restart: unless-stopped
@@ -59,30 +56,35 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "dev", "-pdev"]
+      # Using MYSQL_PWD avoids the "password on command line is insecure" warning
+      test: ["CMD-SHELL", "MYSQL_PWD=dev mysqladmin ping -h localhost -u dev"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ─── Redis ────────────────────────────────────────────────────────────────────
+  # ─── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
+    command:
+      - redis-server
+      - --requirepass
+      - dev
     restart: unless-stopped
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ─── MongoDB ──────────────────────────────────────────────────────────────────
+  # ─── MongoDB ────────────────────────────────────────────────────────────────
   mongo:
-    image: mongo:7
+    image: mongo:8
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: dev
@@ -91,17 +93,16 @@ services:
     volumes:
       - mongo_data:/data/db
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-# ─── Named volumes ────────────────────────────────────────────────────────────
-# Named volumes persist data across container rebuilds and stops.
-# To wipe a database and start fresh, delete the corresponding volume:
-#   docker volume rm .devcontainer_postgres_data   (or mysql_data, redis_data, mongo_data)
+# ─── Named volumes ─────────────────────────────────────────────────────────────
+# To wipe a database and start fresh, delete its volume:
+#   docker volume rm .devcontainer_postgres_data
 volumes:
   postgres_data:
   mysql_data:
