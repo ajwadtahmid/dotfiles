@@ -97,7 +97,10 @@ section_build_tools() {
         fastfetch \
         zsh \
         curl \
-        wget
+        steam \
+        gnome-disk-utility \
+        mangohud \
+        goverlay \
 
     print_info "Initializing Git LFS..."
     sudo -u "$SUDO_USER" git lfs install
@@ -138,7 +141,9 @@ section_flatpak() {
         com.usebruno.Bruno \
         org.godotengine.Godot \
         fr.handbrake.ghb \
-        net.cozic.joplin_desktop
+        net.cozic.joplin_desktop \
+        net.mullvad.MullvadBrowser
+
     print_success "Core Flatpak applications installed"
 }
 
