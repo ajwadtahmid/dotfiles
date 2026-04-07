@@ -12,6 +12,7 @@ services:
       - ~/.claude:/home/dev/.claude        # Claude Code credentials (Pro/Max OAuth)
     command: sleep infinity                # Keep the container alive
     environment:
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
       - POSTGRES_URL=postgresql://dev:dev@postgres:5432/devdb
       - MYSQL_URL=mysql://dev:dev@mysql:3306/devdb
       - REDIS_URL=redis://redis:6379
