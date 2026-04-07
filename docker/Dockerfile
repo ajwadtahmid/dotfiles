@@ -30,6 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     adb \
     # Useful CLI tools
     openssh-client less jq ripgrep fd-find \
+    # Database clients
+    postgresql-client default-mysql-client redis-tools sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Create a non-root user ───────────────────────────────────────────────────
@@ -148,6 +150,15 @@ RUN wget -O- https://apt.releases.hashicorp.com/gpg | \
       https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
       sudo tee /etc/apt/sources.list.d/hashicorp.list && \
     sudo apt-get update && sudo apt-get install -y terraform && \
+    sudo rm -rf /var/lib/apt/lists/*
+
+# ─── mongosh ──────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+      sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && \
+    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] \
+      https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" | \
+      sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list && \
+    sudo apt-get update && sudo apt-get install -y mongodb-mongosh && \
     sudo rm -rf /var/lib/apt/lists/*
 
 # ─── Ansible ──────────────────────────────────────────────────────────────────
