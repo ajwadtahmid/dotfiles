@@ -72,7 +72,7 @@ ENV PATH="$HOME/.local/share/fnm:$PATH"
 RUN eval "$(fnm env --shell bash)" && \
     fnm install --lts && fnm use lts-latest && \
     npm install -g typescript pnpm yarn @anthropic-ai/claude-code && \
-    sudo ln -sf "$(npm bin -g)/claude" /usr/local/bin/claude
+    sudo ln -sf "$(which claude)" /usr/local/bin/claude
 
 # ─── Bun ──────────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://bun.sh/install | bash
