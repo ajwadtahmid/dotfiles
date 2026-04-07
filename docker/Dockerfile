@@ -71,7 +71,8 @@ ENV PATH="$HOME/.local/share/fnm:$PATH"
 #      or fnm won't set up the environment and subsequent commands fail.
 RUN eval "$(fnm env --shell bash)" && \
     fnm install --lts && fnm use lts-latest && \
-    npm install -g typescript pnpm yarn @anthropic-ai/claude-code
+    npm install -g typescript pnpm yarn @anthropic-ai/claude-code && \
+    sudo ln -sf "$(npm bin -g)/claude" /usr/local/bin/claude
 
 # ─── Bun ──────────────────────────────────────────────────────────────────────
 RUN curl -fsSL https://bun.sh/install | bash
