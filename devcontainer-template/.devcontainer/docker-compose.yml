@@ -11,6 +11,7 @@ services:
       - ~/.gitconfig:/home/dev/.gitconfig:ro
     command: sleep infinity                # Keep the container alive
     environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - POSTGRES_URL=postgresql://dev:dev@postgres:5432/devdb
       - MYSQL_URL=mysql://dev:dev@mysql:3306/devdb
       - REDIS_URL=redis://redis:6379
