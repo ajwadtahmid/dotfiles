@@ -103,7 +103,7 @@ section_build_tools() {
         goverlay \
 
     print_info "Initializing Git LFS..."
-    sudo -u "$SUDO_USER" git lfs install
+    sudo -Hu "$SUDO_USER" git lfs install
     print_success "Git LFS initialized"
 }
 
@@ -150,27 +150,16 @@ section_flatpak() {
 #   Uncomment the apps you need, otherwise keep commented.
 #
 #     flatpak install flathub dev.zed.Zed
-#
 #     flatpak install flathub org.fedoraproject.MediaWriter
-#
 #     flatpak install flathub fr.handbrake.ghb
-#
 #     flatpak install flathub chat.schildi.desktop
-#
 #     flatpak install flathub org.gimp.GIMP
-#
 #     flatpak install flathub org.gnome.Boxes
-#
 #     flatpak install flathub com.mojang.Minecraft
-#
 #     flatpak install flathub dev.vencord.Vesktop
-#
 #     flatpak install flathub com.heroicgameslauncher.hgl
-#
 #     flatpak install flathub org.kde.okular
-#
 #     flatpak install flathub com.protonvpn.www
-#
 #     flatpak install flathub com.visualstudio.code
 
 ################################################################################
@@ -205,37 +194,199 @@ section_zed_editor() {
     print_section "ZED EDITOR"
 
     print_info "Installing Zed editor..."
-    sudo -u "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
+    sudo -Hu "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
     print_success "Zed installed"
 }
 
-
 ################################################################################
-#              SECTION 6: PYTHON 3 WITH PIP & VENV
+#              SECTION 6: GIT CONFIGURATION
 #
-#   Python 3 with virtual environment support for isolated project dependencies.
-#   Essential for scripting, data science, and automation tasks.
+#   Git is configured with the username and email set at the top of the script.
 ################################################################################
 
-section_python() {
-    print_section "PYTHON 3 WITH PIP & VENV"
+section_git_config() {
+    print_section "GIT CONFIGURATION"
 
+    # Validate that user changed the default values
+    if [[ "$GIT_USERNAME" == "Your Name" ]] || [[ "$GIT_EMAIL" == "your.email@example.com" ]]; then
+        print_warning "Git configuration variables have default values!"
+        print_warning "Please edit this script and set GIT_USERNAME and GIT_EMAIL before running."
+        print_info "Continuing with default values (you can change them later with git config)"
+    fi
+
+    print_info "Configuring Git..."
+    sudo -Hu "$SUDO_USER" git config --global user.name "$GIT_USERNAME"
+    sudo -Hu "$SUDO_USER" git config --global user.email "$GIT_EMAIL"
+    sudo -Hu "$SUDO_USER" git config --global pull.rebase false
+    sudo -Hu "$SUDO_USER" git config --global init.defaultBranch main
+    print_success "Git configured"
+
+    print_info "Git configuration:"
+    sudo -Hu "$SUDO_USER" git config --global --list | grep -E "user\.|pull\.|init\."
+
+    print_info "To update Git config later, run:"
+    echo "  git config --global user.name 'Your Name'"
+    echo "  git config --global user.email 'your.email@example.com'"
+}
+
+################################################################################
+#              SECTION 7: DEV TOOLS
+#
+#   Installs development runtimes, languages, and local database services:
+#     - NVM + Node LTS, TypeScript, React Native, Expo CLI
+#     - Go, Flutter + Dart, Rustup
+#     - Java 21, Maven, Gradle, Spring Boot CLI (via SDKMAN)
+#     - PostgreSQL, MariaDB, Redis, MongoDB (local services)
+#
+#   SECURITY NOTE: Database services are configured for local development only.
+#   Change default credentials before exposing to any network.
+################################################################################
+
+section_dev_tools() {
+    print_section "DEV TOOLS"
+
+     # ── Python3 + Pip ────────────────────────────────────────────────────────
     print_info "Installing Python 3 with development tools..."
     dnf install -y python3 python3-pip python3-devel
     print_success "Python 3 installed"
 
     print_info "Upgrading pip for user..."
-    sudo -u "$SUDO_USER" python3 -m pip install --upgrade pip --user
+    sudo -Hu "$SUDO_USER" python3 -m pip install --upgrade pip --user
     print_success "pip upgraded"
 
     print_info "Verifying Python installation..."
     python3 --version
     pip3 --version
     print_success "Python verified"
+
+    # ── NVM + Node LTS ────────────────────────────────────────────────────────
+    print_info "Installing NVM..."
+    sudo -Hu "$SUDO_USER" bash -c \
+        'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash'
+    print_success "NVM installed"
+
+    print_info "Installing Node LTS via NVM..."
+    sudo -Hu "$SUDO_USER" bash -c \
+        'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
+         nvm install --lts && nvm use --lts && nvm alias default node'
+    print_success "Node LTS installed"
+
+    # ── TypeScript + global npm tools ─────────────────────────────────────────
+    print_info "Installing TypeScript and global npm tools..."
+    sudo -Hu "$SUDO_USER" bash -c \
+        'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
+         npm install -g typescript ts-node pnpm yarn'
+    print_success "TypeScript and global npm tools installed"
+
+    # ── React Native + Expo CLI ───────────────────────────────────────────────
+    print_info "Installing React Native + Expo CLI..."
+    sudo -Hu "$SUDO_USER" bash -c \
+        'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
+         npm install -g @expo/cli react-native-cli'
+    print_success "React Native + Expo CLI installed"
+
+    # ── Go ────────────────────────────────────────────────────────────────────
+    print_info "Installing Go..."
+    dnf install -y golang
+    print_success "Go installed"
+
+    # ── Flutter + Dart ────────────────────────────────────────────────────────
+    # Flutter SDK bundles Dart — no separate Dart install needed.
+    # Git clone always tracks latest stable release.
+    print_info "Installing Flutter + Dart..."
+    git clone https://github.com/flutter/flutter.git -b stable /opt/flutter
+    chown -R "$SUDO_USER:$SUDO_USER" /opt/flutter
+    echo 'export PATH="$PATH:/opt/flutter/bin"' > /etc/profile.d/flutter.sh
+    sudo -Hu "$SUDO_USER" bash -c \
+        'export PATH="$PATH:/opt/flutter/bin" && flutter precache'
+    print_success "Flutter + Dart installed"
+
+    # ── Rustup ────────────────────────────────────────────────────────────────
+    print_info "Installing Rustup..."
+    sudo -Hu "$SUDO_USER" bash -c \
+        'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+    print_success "Rustup installed"
+
+    # ── Java 21 + Maven + Gradle ──────────────────────────────────────────────
+    print_info "Installing Java 21, Maven, and Gradle..."
+    dnf install -y java-21-openjdk java-21-openjdk-devel maven gradle
+    print_success "Java 21, Maven, and Gradle installed"
+
+    # ── Spring Boot CLI (via SDKMAN) ──────────────────────────────────────────
+    print_info "Installing SDKMAN + Spring Boot CLI..."
+    sudo -Hu "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
+    sudo -Hu "$SUDO_USER" bash -c \
+        'source "$HOME/.sdkman/bin/sdkman-init.sh" && sdk install springboot'
+    print_success "Spring Boot CLI installed"
+
+    # ── PostgreSQL ────────────────────────────────────────────────────────────
+    print_info "Installing PostgreSQL..."
+    dnf install -y postgresql postgresql-server
+    postgresql-setup --initdb
+    systemctl enable postgresql
+    systemctl start postgresql
+    print_info "Creating PostgreSQL dev account..."
+    sudo -u postgres psql -c "CREATE USER dev WITH PASSWORD 'dev';"
+    sudo -u postgres psql -c "CREATE DATABASE devdb OWNER dev;"
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devdb TO dev;"
+    print_success "PostgreSQL installed — user: dev, password: dev, db: devdb"
+
+    # ── MariaDB ───────────────────────────────────────────────────────────────
+    print_info "Installing MariaDB..."
+    dnf install -y mariadb mariadb-server
+    systemctl enable mariadb
+    systemctl start mariadb
+    print_info "Creating MariaDB dev account..."
+    mysql -u root -e "CREATE USER 'dev'@'localhost' IDENTIFIED BY 'dev';"
+    mysql -u root -e "CREATE DATABASE devdb;"
+    mysql -u root -e "GRANT ALL PRIVILEGES ON devdb.* TO 'dev'@'localhost';"
+    mysql -u root -e "FLUSH PRIVILEGES;"
+    print_success "MariaDB installed — user: dev, password: dev, db: devdb"
+
+    # ── Redis ─────────────────────────────────────────────────────────────────
+    print_info "Installing Redis..."
+    dnf install -y redis
+    print_info "Setting Redis password..."
+    sed -i 's/^# requirepass .*/requirepass dev/' /etc/redis/redis.conf
+    # If the line doesn't exist at all, append it
+    grep -q "^requirepass" /etc/redis/redis.conf || echo "requirepass dev" >> /etc/redis/redis.conf
+    systemctl enable redis
+    systemctl start redis
+    print_success "Redis installed — password: dev"
+
+    # ── MongoDB ───────────────────────────────────────────────────────────────
+    print_info "Adding MongoDB repository..."
+    cat > /etc/yum.repos.d/mongodb-org-8.0.repo << 'MONGO_REPO'
+[mongodb-org-8.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/9/mongodb-org/8.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://pgp.mongodb.com/server-8.0.asc
+MONGO_REPO
+    print_info "Installing MongoDB..."
+    dnf install -y mongodb-org
+    systemctl start mongod
+    print_info "Creating MongoDB dev account..."
+    mongosh --quiet --eval "
+        db = db.getSiblingDB('admin');
+        db.createUser({ user: 'dev', pwd: 'dev', roles: [
+            { role: 'readWrite', db: 'devdb' },
+            { role: 'dbAdmin',   db: 'devdb' }
+        ]});
+        db.getSiblingDB('devdb').createCollection('init');
+    "
+    print_info "Enabling MongoDB authentication..."
+    sed -i 's/^#security:/security:/' /etc/mongod.conf
+    grep -q "  authorization:" /etc/mongod.conf || \
+        sed -i '/^security:/a\  authorization: enabled' /etc/mongod.conf
+    systemctl enable mongod
+    systemctl restart mongod
+    print_success "MongoDB installed — user: dev, password: dev, db: devdb"
 }
 
 ################################################################################
-#              SECTION 7: DOCKER & DOCKER COMPOSE
+#              SECTION 8: DOCKER & DOCKER COMPOSE
 #
 #   Docker enables containerized development and testing.
 #   Auto-start daemon is configured to run on boot.
@@ -274,37 +425,6 @@ section_docker() {
 
     print_warning "You may need to restart your shell for group changes to take effect"
     print_warning "Or run: newgrp docker"
-}
-
-################################################################################
-#              SECTION 8: GIT CONFIGURATION
-#
-#   Git is configured with the username and email set at the top of the script.
-################################################################################
-
-section_git_config() {
-    print_section "GIT CONFIGURATION"
-
-    # Validate that user changed the default values
-    if [[ "$GIT_USERNAME" == "Your Name" ]] || [[ "$GIT_EMAIL" == "your.email@example.com" ]]; then
-        print_warning "Git configuration variables have default values!"
-        print_warning "Please edit this script and set GIT_USERNAME and GIT_EMAIL before running."
-        print_info "Continuing with default values (you can change them later with git config)"
-    fi
-
-    print_info "Configuring Git..."
-    sudo -u "$SUDO_USER" git config --global user.name "$GIT_USERNAME"
-    sudo -u "$SUDO_USER" git config --global user.email "$GIT_EMAIL"
-    sudo -u "$SUDO_USER" git config --global pull.rebase false
-    sudo -u "$SUDO_USER" git config --global init.defaultBranch main
-    print_success "Git configured"
-
-    print_info "Git configuration:"
-    sudo -u "$SUDO_USER" git config --global --list | grep -E "user\.|pull\.|init\."
-
-    print_info "To update Git config later, run:"
-    echo "  git config --global user.name 'Your Name'"
-    echo "  git config --global user.email 'your.email@example.com'"
 }
 
 ################################################################################
@@ -349,7 +469,7 @@ section_customization() {
 }
 
 ################################################################################
-#              SECTION 10: DEV CONTAINERS
+#              SECTION 19: DEV CONTAINERS
 #
 #   Installs the devcontainer CLI and scaffolds a reusable template at
 #   ~/.dotfiles/devcontainer-template/.devcontainer/ containing:
@@ -693,6 +813,7 @@ main() {
     section_mullvad_vpn
     section_zed_editor
     section_python
+    section_dev_tools
     section_docker
     section_git_config
     section_customization
