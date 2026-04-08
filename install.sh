@@ -204,9 +204,13 @@ section_mullvad_vpn() {
 section_zed_editor() {
     print_section "ZED EDITOR"
 
-    print_info "Installing Zed editor..."
-    sudo -Hu "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
-    print_success "Zed installed"
+    if sudo -Hu "$SUDO_USER" bash -c 'command -v zed >/dev/null 2>&1 || [ -x "$HOME/.local/bin/zed" ]'; then
+        print_info "Zed already installed — skipping"
+    else
+        print_info "Installing Zed editor..."
+        sudo -Hu "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
+        print_success "Zed installed"
+    fi
 }
 
 ################################################################################
@@ -240,7 +244,7 @@ section_git_config() {
 #     - NVM + Node LTS, TypeScript, React Native, Expo CLI
 #     - Go, Flutter + Dart, Rustup
 #     - Java 21, Maven, Gradle, Spring Boot CLI (via SDKMAN)
-#     - PostgreSQL, MariaDB, Redis, MongoDB (local services)
+#     - PostgreSQL, MariaDB, MongoDB (local services)
 #
 #   SECURITY NOTE: Database services are configured for local development only.
 #   Change default credentials before exposing to any network.
@@ -275,19 +279,12 @@ section_dev_tools() {
          nvm install --lts && nvm use --lts && nvm alias default node'
     print_success "Node LTS installed"
 
-    # ── TypeScript + global npm tools ─────────────────────────────────────────
-    print_info "Installing TypeScript and global npm tools..."
-    sudo -Hu "$SUDO_USER" bash -c \
-        'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
-         npm install -g typescript ts-node pnpm yarn'
-    print_success "TypeScript and global npm tools installed"
-
     # ── React Native + Expo CLI ───────────────────────────────────────────────
-    print_info "Installing React Native + Expo CLI..."
+    print_info "Installing Expo CLI..."
     sudo -Hu "$SUDO_USER" bash -c \
         'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
-         npm install -g @expo/cli react-native-cli'
-    print_success "React Native + Expo CLI installed"
+         npm install -g @expo/cli'
+    print_success "Expo CLI installed"
 
     # ── Go ────────────────────────────────────────────────────────────────────
     print_info "Installing Go..."
@@ -334,27 +331,23 @@ section_dev_tools() {
     fi
     print_success "Rustup installed"
 
-    # ── Java 21 + Maven + Gradle ──────────────────────────────────────────────
-    print_info "Installing Java 21, Maven, and Gradle..."
-    dnf install -y java-21-openjdk java-21-openjdk-devel maven gradle
-    print_success "Java 21, Maven, and Gradle installed"
+    # ── Java 21 + Maven ───────────────────────────────────────────────────────
+    print_info "Installing Java 21 and Maven..."
+    dnf install -y java-21-openjdk java-21-openjdk-devel maven
+    print_success "Java 21 and Maven installed"
 
-    # ── Spring Boot CLI (via SDKMAN) ──────────────────────────────────────────
-    print_info "Installing SDKMAN + Spring Boot CLI..."
+    # ── SDKMAN → Gradle + Spring Boot CLI ────────────────────────────────────
+    print_info "Installing SDKMAN..."
     if [[ -d "$USER_HOME/.sdkman" ]]; then
         print_info "SDKMAN already installed — skipping installer"
     else
         sudo -Hu "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
     fi
-    # `sdk install` prompts "Make default?" if already installed — pipe "no" to skip
     sudo -Hu "$SUDO_USER" bash -c \
         'source "$HOME/.sdkman/bin/sdkman-init.sh" && \
-         if sdk list springboot 2>/dev/null | grep -q "installed"; then
-             echo "Spring Boot CLI already installed — skipping"
-         else
-             echo "n" | sdk install springboot
-         fi'
-    print_success "Spring Boot CLI installed"
+         echo "n" | sdk install gradle && \
+         echo "n" | sdk install springboot'
+    print_success "Gradle and Spring Boot CLI installed via SDKMAN"
 
     # ── PostgreSQL ────────────────────────────────────────────────────────────
     print_info "Installing PostgreSQL..."
@@ -377,84 +370,32 @@ section_dev_tools() {
     # ── MariaDB ───────────────────────────────────────────────────────────────
     print_info "Installing MariaDB..."
     dnf install -y mariadb mariadb-server
+    if [[ ! -d /var/lib/mysql/mysql ]]; then
+        print_info "Initializing MariaDB data directory..."
+        mariadb-install-db --user=mysql --datadir=/var/lib/mysql
+    fi
     systemctl enable mariadb
-    systemctl start mariadb
-    print_info "Creating MariaDB dev account (if missing)..."
-    mysql -u root -e "CREATE USER IF NOT EXISTS 'dev'@'localhost' IDENTIFIED BY 'dev';"
-    mysql -u root -e "CREATE DATABASE IF NOT EXISTS devdb;"
-    mysql -u root -e "GRANT ALL PRIVILEGES ON devdb.* TO 'dev'@'localhost';"
-    mysql -u root -e "FLUSH PRIVILEGES;"
-    print_success "MariaDB installed — user: dev, password: dev, db: devdb"
-
-    # ── Redis ─────────────────────────────────────────────────────────────────
-    print_info "Installing Redis..."
-    dnf install -y redis
-    print_info "Setting Redis password (idempotent)..."
-    if grep -qE '^requirepass dev$' /etc/redis/redis.conf; then
-        print_info "Redis password already configured — skipping"
-    else
-        # Remove any existing requirepass line (commented or not), then append ours
-        sed -i -E '/^#?\s*requirepass .*/d' /etc/redis/redis.conf
-        echo "requirepass dev" >> /etc/redis/redis.conf
-    fi
-    systemctl enable redis
-    systemctl restart redis
-    print_success "Redis installed — password: dev"
-
-    # ── MongoDB ───────────────────────────────────────────────────────────────
-    print_info "Adding MongoDB repository..."
-    cat > /etc/yum.repos.d/mongodb-org-8.0.repo << 'MONGO_REPO'
-[mongodb-org-8.0]
-name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/9/mongodb-org/8.0/x86_64/
-gpgcheck=1
-enabled=1
-gpgkey=https://pgp.mongodb.com/server-8.0.asc
-MONGO_REPO
-    print_info "Installing MongoDB..."
-    dnf install -y mongodb-org
-    systemctl start mongod
-    print_info "Creating MongoDB dev account (if missing)..."
-    # On first run, auth is off — no credentials needed.
-    # On rerun, auth is on — we need credentials. Try both paths.
-    MONGO_USER_EXISTS=$(mongosh --quiet --eval "
-        try {
-            db = db.getSiblingDB('admin');
-            const u = db.getUser('dev');
-            print(u ? 'yes' : 'no');
-        } catch(e) { print('auth_required'); }
-    " 2>/dev/null || echo "auth_required")
-
-    if [[ "$MONGO_USER_EXISTS" == "yes" ]]; then
-        print_info "MongoDB 'dev' user already exists — skipping"
-    elif [[ "$MONGO_USER_EXISTS" == "auth_required" ]]; then
-        # Auth already enabled from a previous run — verify creds work
-        if mongosh --quiet -u dev -p dev --authenticationDatabase admin \
-               --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
-            print_info "MongoDB 'dev' user already exists (auth enabled) — skipping"
-        else
-            print_warning "MongoDB has auth enabled but 'dev' credentials don't work."
-            print_warning "Manually reset with: sudo systemctl stop mongod && mongod --noauth ..."
+    systemctl start mariadb || true
+    print_info "Waiting for MariaDB to be ready..."
+    MARIADB_READY=false
+    for i in $(seq 1 30); do
+        if mysqladmin ping --silent 2>/dev/null; then
+            MARIADB_READY=true
+            break
         fi
+        sleep 1
+    done
+    if [[ "$MARIADB_READY" == "true" ]]; then
+        print_info "Creating MariaDB dev account (if missing)..."
+        mysql -u root -e "CREATE USER IF NOT EXISTS 'dev'@'localhost' IDENTIFIED BY 'dev';"
+        mysql -u root -e "CREATE DATABASE IF NOT EXISTS devdb;"
+        mysql -u root -e "GRANT ALL PRIVILEGES ON devdb.* TO 'dev'@'localhost';"
+        mysql -u root -e "FLUSH PRIVILEGES;"
+        print_success "MariaDB installed — user: dev, password: dev, db: devdb"
     else
-        mongosh --quiet --eval "
-            db = db.getSiblingDB('admin');
-            db.createUser({ user: 'dev', pwd: 'dev', roles: [
-                { role: 'readWrite', db: 'devdb' },
-                { role: 'dbAdmin',   db: 'devdb' }
-            ]});
-            db.getSiblingDB('devdb').createCollection('init');
-        "
+        print_warning "MariaDB did not become ready in time — skipping dev account setup"
+        print_warning "Run 'sudo systemctl status mariadb' to diagnose"
     fi
-
-    print_info "Enabling MongoDB authentication..."
-    sed -i 's/^#security:/security:/' /etc/mongod.conf
-    grep -q "  authorization:" /etc/mongod.conf || \
-        sed -i '/^security:/a\  authorization: enabled' /etc/mongod.conf
-    systemctl enable mongod
-    systemctl restart mongod
-    print_success "MongoDB installed — user: dev, password: dev, db: devdb"
-}
 
 ################################################################################
 #              SECTION 8: DOCKER & DOCKER COMPOSE
@@ -550,7 +491,7 @@ section_customization() {
 #   Installs the devcontainer CLI and scaffolds a reusable template at
 #   ~/.dotfiles/devcontainer-template/.devcontainer/ containing:
 #     - devcontainer.json  (VS Code extensions, port forwarding, remoteUser)
-#     - docker-compose.yml (app + PostgreSQL + MySQL + Redis + MongoDB)
+#     - docker-compose.yml (app + PostgreSQL + MySQL + MongoDB)
 #
 #   To use the template in a project:
 #     cp -r ~/.dotfiles/devcontainer-template/.devcontainer /path/to/your/project/
