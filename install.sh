@@ -99,9 +99,25 @@ section_build_tools() {
     print_info "Installing essential softwares..."
     dnf install -y \
         gcc \
-        g++ \
+        gcc-c++ \
         make \
         cmake \
+        clang \
+        clang-tools-extra \
+        ninja-build \
+        gtk3-devel \
+        libXScrnSaver-devel \
+        libXtst-devel \
+        mesa-libGL-devel \
+        libXrandr-devel \
+        libXcursor-devel \
+        pkgconfig \
+        libX11-devel \
+        libXrender-devel \
+        unzip \
+        xz \
+        zip \
+        mesa-libGLU \
         git \
         git-lfs \
         htop \
@@ -111,7 +127,7 @@ section_build_tools() {
         steam \
         gnome-disk-utility \
         mangohud \
-        goverlay \
+        goverlay
 
     print_info "Initializing Git LFS..."
     sudo -Hu "$SUDO_USER" git lfs install
@@ -318,7 +334,10 @@ section_dev_tools() {
     fi
 
     sudo -Hu "$SUDO_USER" bash -c "export PATH=\"\$PATH:$FLUTTER_DIR/bin\" && flutter precache"
-    print_success "Flutter + Dart installed"
+
+    export CHROME_EXECUTABLE=/var/lib/flatpak/exports/bin/com.brave.Browser
+
+    print_success "Flutter + Dart installed and Brave set as CHROME_EXECUTABLE"
 
     # ── Rustup ────────────────────────────────────────────────────────────────
     print_info "Installing Rustup..."
