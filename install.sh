@@ -396,6 +396,7 @@ section_dev_tools() {
         print_warning "MariaDB did not become ready in time — skipping dev account setup"
         print_warning "Run 'sudo systemctl status mariadb' to diagnose"
     fi
+}
 
 ################################################################################
 #              SECTION 8: DOCKER & DOCKER COMPOSE
