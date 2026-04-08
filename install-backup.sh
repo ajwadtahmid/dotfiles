@@ -56,20 +56,9 @@ print_error() {
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        print_error "This script must be run with sudo (e.g. 'sudo bash install.sh')"
+        print_error "This script must be run with sudo"
         exit 1
     fi
-    if [[ -z "${SUDO_USER:-}" || "$SUDO_USER" == "root" ]]; then
-        print_error "Run this script with sudo from a normal user account, not as root directly."
-        print_error "The script needs \$SUDO_USER to install user-scoped tools (NVM, Rust, Flutter, etc.)."
-        exit 1
-    fi
-    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-    if [[ -z "$USER_HOME" || ! -d "$USER_HOME" ]]; then
-        print_error "Could not resolve home directory for user '$SUDO_USER'."
-        exit 1
-    fi
-    export USER_HOME
 }
 
 ################################################################################
@@ -218,6 +207,13 @@ section_zed_editor() {
 section_git_config() {
     print_section "GIT CONFIGURATION"
 
+    # Validate that user changed the default values
+    if [[ "$GIT_USERNAME" == "Your Name" ]] || [[ "$GIT_EMAIL" == "your.email@example.com" ]]; then
+        print_warning "Git configuration variables have default values!"
+        print_warning "Please edit this script and set GIT_USERNAME and GIT_EMAIL before running."
+        print_info "Continuing with default values (you can change them later with git config)"
+    fi
+
     print_info "Configuring Git..."
     sudo -Hu "$SUDO_USER" git config --global user.name "$GIT_USERNAME"
     sudo -Hu "$SUDO_USER" git config --global user.email "$GIT_EMAIL"
@@ -296,42 +292,19 @@ section_dev_tools() {
 
     # ── Flutter + Dart ────────────────────────────────────────────────────────
     # Flutter SDK bundles Dart — no separate Dart install needed.
-    # Installed to ~/.flutter so everything lives under the user's home folder.
-    print_info "Installing Flutter + Dart to $USER_HOME/.flutter..."
-    FLUTTER_DIR="$USER_HOME/.flutter"
-    if [[ -d "$FLUTTER_DIR/.git" ]]; then
-        print_info "Flutter already present — pulling latest stable..."
-        sudo -Hu "$SUDO_USER" git -C "$FLUTTER_DIR" fetch origin stable
-        sudo -Hu "$SUDO_USER" git -C "$FLUTTER_DIR" checkout stable
-        sudo -Hu "$SUDO_USER" git -C "$FLUTTER_DIR" pull --ff-only origin stable
-    else
-        sudo -Hu "$SUDO_USER" git clone https://github.com/flutter/flutter.git -b stable "$FLUTTER_DIR"
-    fi
-
-    # Add Flutter to PATH via ~/.bashrc (idempotent: only append if not already there)
-    BASHRC="$USER_HOME/.bashrc"
-    FLUTTER_LINE='export PATH="$PATH:$HOME/.flutter/bin"'
-    if ! sudo -Hu "$SUDO_USER" grep -Fxq "$FLUTTER_LINE" "$BASHRC" 2>/dev/null; then
-        echo "" | sudo -Hu "$SUDO_USER" tee -a "$BASHRC" > /dev/null
-        echo "# Flutter SDK" | sudo -Hu "$SUDO_USER" tee -a "$BASHRC" > /dev/null
-        echo "$FLUTTER_LINE" | sudo -Hu "$SUDO_USER" tee -a "$BASHRC" > /dev/null
-        print_success "Flutter added to ~/.bashrc"
-    else
-        print_info "Flutter PATH already in ~/.bashrc — skipping"
-    fi
-
-    sudo -Hu "$SUDO_USER" bash -c "export PATH=\"\$PATH:$FLUTTER_DIR/bin\" && flutter precache"
+    # Git clone always tracks latest stable release.
+    print_info "Installing Flutter + Dart..."
+    git clone https://github.com/flutter/flutter.git -b stable /opt/flutter
+    chown -R "$SUDO_USER:$SUDO_USER" /opt/flutter
+    echo 'export PATH="$PATH:/opt/flutter/bin"' > /etc/profile.d/flutter.sh
+    sudo -Hu "$SUDO_USER" bash -c \
+        'export PATH="$PATH:/opt/flutter/bin" && flutter precache'
     print_success "Flutter + Dart installed"
 
     # ── Rustup ────────────────────────────────────────────────────────────────
     print_info "Installing Rustup..."
-    if sudo -Hu "$SUDO_USER" bash -c 'command -v rustup >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/rustup" ]'; then
-        print_info "Rustup already installed — running update instead"
-        sudo -Hu "$SUDO_USER" bash -c 'source "$HOME/.cargo/env" 2>/dev/null; rustup update || true'
-    else
-        sudo -Hu "$SUDO_USER" bash -c \
-            'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
-    fi
+    sudo -Hu "$SUDO_USER" bash -c \
+        'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
     print_success "Rustup installed"
 
     # ── Java 21 + Maven + Gradle ──────────────────────────────────────────────
@@ -341,36 +314,20 @@ section_dev_tools() {
 
     # ── Spring Boot CLI (via SDKMAN) ──────────────────────────────────────────
     print_info "Installing SDKMAN + Spring Boot CLI..."
-    if [[ -d "$USER_HOME/.sdkman" ]]; then
-        print_info "SDKMAN already installed — skipping installer"
-    else
-        sudo -Hu "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
-    fi
-    # `sdk install` prompts "Make default?" if already installed — pipe "no" to skip
+    sudo -Hu "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
     sudo -Hu "$SUDO_USER" bash -c \
-        'source "$HOME/.sdkman/bin/sdkman-init.sh" && \
-         if sdk list springboot 2>/dev/null | grep -q "installed"; then
-             echo "Spring Boot CLI already installed — skipping"
-         else
-             echo "n" | sdk install springboot
-         fi'
+        'source "$HOME/.sdkman/bin/sdkman-init.sh" && sdk install springboot'
     print_success "Spring Boot CLI installed"
 
     # ── PostgreSQL ────────────────────────────────────────────────────────────
     print_info "Installing PostgreSQL..."
     dnf install -y postgresql postgresql-server
-    if [[ -f /var/lib/pgsql/data/PG_VERSION ]]; then
-        print_info "PostgreSQL cluster already initialized — skipping initdb"
-    else
-        postgresql-setup --initdb
-    fi
+    postgresql-setup --initdb
     systemctl enable postgresql
     systemctl start postgresql
-    print_info "Creating PostgreSQL dev account (if missing)..."
-    sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='dev'" | grep -q 1 || \
-        sudo -u postgres psql -c "CREATE USER dev WITH PASSWORD 'dev';"
-    sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='devdb'" | grep -q 1 || \
-        sudo -u postgres psql -c "CREATE DATABASE devdb OWNER dev;"
+    print_info "Creating PostgreSQL dev account..."
+    sudo -u postgres psql -c "CREATE USER dev WITH PASSWORD 'dev';"
+    sudo -u postgres psql -c "CREATE DATABASE devdb OWNER dev;"
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devdb TO dev;"
     print_success "PostgreSQL installed — user: dev, password: dev, db: devdb"
 
@@ -379,9 +336,9 @@ section_dev_tools() {
     dnf install -y mariadb mariadb-server
     systemctl enable mariadb
     systemctl start mariadb
-    print_info "Creating MariaDB dev account (if missing)..."
-    mysql -u root -e "CREATE USER IF NOT EXISTS 'dev'@'localhost' IDENTIFIED BY 'dev';"
-    mysql -u root -e "CREATE DATABASE IF NOT EXISTS devdb;"
+    print_info "Creating MariaDB dev account..."
+    mysql -u root -e "CREATE USER 'dev'@'localhost' IDENTIFIED BY 'dev';"
+    mysql -u root -e "CREATE DATABASE devdb;"
     mysql -u root -e "GRANT ALL PRIVILEGES ON devdb.* TO 'dev'@'localhost';"
     mysql -u root -e "FLUSH PRIVILEGES;"
     print_success "MariaDB installed — user: dev, password: dev, db: devdb"
@@ -389,16 +346,12 @@ section_dev_tools() {
     # ── Redis ─────────────────────────────────────────────────────────────────
     print_info "Installing Redis..."
     dnf install -y redis
-    print_info "Setting Redis password (idempotent)..."
-    if grep -qE '^requirepass dev$' /etc/redis/redis.conf; then
-        print_info "Redis password already configured — skipping"
-    else
-        # Remove any existing requirepass line (commented or not), then append ours
-        sed -i -E '/^#?\s*requirepass .*/d' /etc/redis/redis.conf
-        echo "requirepass dev" >> /etc/redis/redis.conf
-    fi
+    print_info "Setting Redis password..."
+    sed -i 's/^# requirepass .*/requirepass dev/' /etc/redis/redis.conf
+    # If the line doesn't exist at all, append it
+    grep -q "^requirepass" /etc/redis/redis.conf || echo "requirepass dev" >> /etc/redis/redis.conf
     systemctl enable redis
-    systemctl restart redis
+    systemctl start redis
     print_success "Redis installed — password: dev"
 
     # ── MongoDB ───────────────────────────────────────────────────────────────
@@ -414,39 +367,15 @@ MONGO_REPO
     print_info "Installing MongoDB..."
     dnf install -y mongodb-org
     systemctl start mongod
-    print_info "Creating MongoDB dev account (if missing)..."
-    # On first run, auth is off — no credentials needed.
-    # On rerun, auth is on — we need credentials. Try both paths.
-    MONGO_USER_EXISTS=$(mongosh --quiet --eval "
-        try {
-            db = db.getSiblingDB('admin');
-            const u = db.getUser('dev');
-            print(u ? 'yes' : 'no');
-        } catch(e) { print('auth_required'); }
-    " 2>/dev/null || echo "auth_required")
-
-    if [[ "$MONGO_USER_EXISTS" == "yes" ]]; then
-        print_info "MongoDB 'dev' user already exists — skipping"
-    elif [[ "$MONGO_USER_EXISTS" == "auth_required" ]]; then
-        # Auth already enabled from a previous run — verify creds work
-        if mongosh --quiet -u dev -p dev --authenticationDatabase admin \
-               --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
-            print_info "MongoDB 'dev' user already exists (auth enabled) — skipping"
-        else
-            print_warning "MongoDB has auth enabled but 'dev' credentials don't work."
-            print_warning "Manually reset with: sudo systemctl stop mongod && mongod --noauth ..."
-        fi
-    else
-        mongosh --quiet --eval "
-            db = db.getSiblingDB('admin');
-            db.createUser({ user: 'dev', pwd: 'dev', roles: [
-                { role: 'readWrite', db: 'devdb' },
-                { role: 'dbAdmin',   db: 'devdb' }
-            ]});
-            db.getSiblingDB('devdb').createCollection('init');
-        "
-    fi
-
+    print_info "Creating MongoDB dev account..."
+    mongosh --quiet --eval "
+        db = db.getSiblingDB('admin');
+        db.createUser({ user: 'dev', pwd: 'dev', roles: [
+            { role: 'readWrite', db: 'devdb' },
+            { role: 'dbAdmin',   db: 'devdb' }
+        ]});
+        db.getSiblingDB('devdb').createCollection('init');
+    "
     print_info "Enabling MongoDB authentication..."
     sed -i 's/^#security:/security:/' /etc/mongod.conf
     grep -q "  authorization:" /etc/mongod.conf || \
@@ -507,35 +436,30 @@ section_docker() {
 section_customization() {
     print_section "SYSTEM CUSTOMIZATION"
 
-    CURRENT_HOSTNAME=$(hostnamectl --static 2>/dev/null || hostname)
-    if [[ "$CURRENT_HOSTNAME" == "fedora-desktop" || "$CURRENT_HOSTNAME" == "fedora-laptop" ]]; then
-        print_info "Hostname already set to '$CURRENT_HOSTNAME' — skipping hostname prompt"
+    # Interactive hostname selection menu
+    print_info "Select your system type (for hostname):"
+    echo "  1) fedora-desktop"
+    echo "  2) fedora-laptop"
+    read -p "Enter choice [1-2]: " HOSTNAME_CHOICE
+
+    case $HOSTNAME_CHOICE in
+        1)
+            FINAL_HOSTNAME="fedora-desktop"
+            ;;
+        2)
+            FINAL_HOSTNAME="fedora-laptop"
+            ;;
+        *)
+            print_warning "Invalid choice. Using default: fedora-desktop"
+            FINAL_HOSTNAME="fedora-desktop"
+            ;;
+    esac
+
+    print_info "Setting hostname to: $FINAL_HOSTNAME"
+    if hostnamectl set-hostname "$FINAL_HOSTNAME"; then
+        print_success "Hostname set to: $FINAL_HOSTNAME"
     else
-        # Interactive hostname selection menu
-        print_info "Select your system type (for hostname):"
-        echo "  1) fedora-desktop"
-        echo "  2) fedora-laptop"
-        read -p "Enter choice [1-2]: " HOSTNAME_CHOICE
-
-        case $HOSTNAME_CHOICE in
-            1)
-                FINAL_HOSTNAME="fedora-desktop"
-                ;;
-            2)
-                FINAL_HOSTNAME="fedora-laptop"
-                ;;
-            *)
-                print_warning "Invalid choice. Using default: fedora-desktop"
-                FINAL_HOSTNAME="fedora-desktop"
-                ;;
-        esac
-
-        print_info "Setting hostname to: $FINAL_HOSTNAME"
-        if hostnamectl set-hostname "$FINAL_HOSTNAME"; then
-            print_success "Hostname set to: $FINAL_HOSTNAME"
-        else
-            print_error "Failed to set hostname. This may require reboot to take effect."
-        fi
+        print_error "Failed to set hostname. This may require reboot to take effect."
     fi
 
     print_info "Running final system updates..."
@@ -545,7 +469,7 @@ section_customization() {
 }
 
 ################################################################################
-#              SECTION 10: DEV CONTAINERS
+#              SECTION 19: DEV CONTAINERS
 #
 #   Installs the devcontainer CLI and scaffolds a reusable template at
 #   ~/.dotfiles/devcontainer-template/.devcontainer/ containing:
@@ -670,7 +594,7 @@ section_devcontainers() {
   // Runs on the HOST before the container starts. Ensures ~/.gitconfig and
   // ~/.ssh exist. Without this, Docker bind-mounts a non-existent path as an
   // empty directory, breaking git inside the container.
-  "initializeCommand": "[ -f ~/.gitconfig ] || (mkdir -p ~/.ssh && touch ~/.gitconfig)",
+  "initializeCommand": "[ -d ~/.gitconfig ] && rm -rf ~/.gitconfig; mkdir -p ~/.ssh; touch ~/.gitconfig",
 
   "runArgs": ["--shm-size=2gb"],
 
@@ -829,7 +753,7 @@ services:
     ports:
       - "127.0.0.1:27017:27017"
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
+    test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -888,6 +812,7 @@ main() {
     section_flatpak
     section_mullvad_vpn
     section_zed_editor
+    section_python
     section_dev_tools
     section_docker
     section_git_config
