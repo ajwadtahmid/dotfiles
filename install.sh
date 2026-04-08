@@ -483,11 +483,25 @@ section_devcontainers() {
   // forwarding is handled by docker-compose "ports:" mappings.
   "forwardPorts": [
     3000,   // React / Next.js / Vue / Svelte
-    4000,   // Misc backend
-    5000,   // Flask
+    4000,   // Misc backend / Apollo GraphQL
+    4173,   // Vite preview
+    4200,   // Angular CLI
+    4321,   // Astro
+    5000,   // Flask / ASP.NET Core HTTP
+    5001,   // ASP.NET Core HTTPS
+    5173,   // Vite dev server
+    6006,   // Storybook
+    7000,   // ASP.NET .NET 6+ HTTP
     8000,   // Django / FastAPI
-    8080,   // General HTTP
+    8080,   // General HTTP / Spring Boot
+    8081,   // Metro bundler (React Native)
     8888,   // Jupyter
+    9000,   // Play Framework (Scala)
+    9100,   // Flutter DevTools
+    9229,   // Node.js debugger
+    19000,  // Expo
+    19001,  // Expo DevTools
+    19002,  // Expo web
     5432,   // PostgreSQL
     3306,   // MySQL
     6379,   // Redis
@@ -496,8 +510,23 @@ section_devcontainers() {
 
   "portsAttributes": {
     "3000": { "label": "Frontend" },
+    "4173": { "label": "Vite Preview" },
+    "4200": { "label": "Angular" },
+    "4321": { "label": "Astro" },
+    "5000": { "label": "Flask / ASP.NET" },
+    "5001": { "label": "ASP.NET HTTPS" },
+    "5173": { "label": "Vite" },
+    "6006": { "label": "Storybook" },
+    "7000": { "label": "ASP.NET (.NET 6+)" },
     "8000": { "label": "Backend" },
-    "8080": { "label": "HTTP" },
+    "8080": { "label": "HTTP / Spring Boot" },
+    "8081": { "label": "Metro (React Native)" },
+    "9000": { "label": "Play Framework" },
+    "9100": { "label": "Flutter DevTools" },
+    "9229": { "label": "Node Debugger" },
+    "19000": { "label": "Expo" },
+    "19001": { "label": "Expo DevTools" },
+    "19002": { "label": "Expo Web" },
     "5432": { "label": "PostgreSQL" },
     "3306": { "label": "MySQL" },
     "6379": { "label": "Redis" },

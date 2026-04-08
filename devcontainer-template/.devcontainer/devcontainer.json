@@ -7,21 +7,20 @@
   // "workspaceFolder": "/workspace",
   // "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
 
-
   // Use docker-compose to start the dev container + all database services together
   "dockerComposeFile": "docker-compose.yml",
-  "service": "app",           // The service VS Code connects to (your dev container)
+  "service": "app", // The service VS Code connects to (your dev container)
   "workspaceFolder": "/workspace",
 
   // Files mounted from your host machine into the container
   "mounts": [
     "source=${localEnv:HOME}/.ssh,target=/home/dev/.ssh,type=bind,readonly",
-    "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,readonly"
+    "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,readonly",
   ],
 
   // Extra capabilities added on top of the base image
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
   },
 
   // VS Code extensions and settings applied inside the container
@@ -73,15 +72,15 @@
         "redhat.ansible",
 
         // Swift
-        "sswg.swift-lang"
+        "sswg.swift-lang",
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
         "editor.formatOnSave": true,
         "editor.rulers": [100],
-        "python.defaultInterpreterPath": "/home/dev/.pyenv/shims/python"
-      }
-    }
+        "python.defaultInterpreterPath": "/home/dev/.pyenv/shims/python",
+      },
+    },
   },
 
   // Run the container as the "dev" user created in the Dockerfile
@@ -92,26 +91,54 @@
 
   // Ports automatically forwarded from the container to your host
   "forwardPorts": [
-    3000,   // React / Next.js / Vue / Svelte
-    4000,   // Misc backend
-    5000,   // Flask
-    8000,   // Django / FastAPI
-    8080,   // General HTTP
-    8888,   // Jupyter
-    5432,   // PostgreSQL
-    3306,   // MySQL
-    6379,   // Redis
-    27017   // MongoDB
-    // SQLite has no network port — it is a file-based database accessed directly
+    3000, // React / Next.js / Vue / Svelte
+    4000, // Misc backend / Apollo GraphQL
+    4173, // Vite preview
+    4200, // Angular CLI
+    4321, // Astro
+    5000, // Flask / ASP.NET Core HTTP
+    5001, // ASP.NET Core HTTPS
+    5173, // Vite dev server
+    6006, // Storybook
+    7000, // ASP.NET .NET 6+ HTTP
+    8000, // Django / FastAPI
+    8080, // General HTTP / Spring Boot
+    8081, // Metro bundler (React Native)
+    8888, // Jupyter
+    9000, // Play Framework (Scala)
+    9100, // Flutter DevTools
+    9229, // Node.js debugger
+    19000, // Expo
+    19001, // Expo DevTools
+    19002, // Expo web
+    5432, // PostgreSQL
+    3306, // MySQL
+    6379, // Redis
+    27017, // MongoDB
   ],
 
   "portsAttributes": {
     "3000": { "label": "Frontend" },
+    "4173": { "label": "Vite Preview" },
+    "4200": { "label": "Angular" },
+    "4321": { "label": "Astro" },
+    "5000": { "label": "Flask / ASP.NET" },
+    "5001": { "label": "ASP.NET HTTPS" },
+    "5173": { "label": "Vite" },
+    "6006": { "label": "Storybook" },
+    "7000": { "label": "ASP.NET (.NET 6+)" },
     "8000": { "label": "Backend" },
-    "8080": { "label": "HTTP" },
+    "8080": { "label": "HTTP / Spring Boot" },
+    "8081": { "label": "Metro (React Native)" },
+    "9000": { "label": "Play Framework" },
+    "9100": { "label": "Flutter DevTools" },
+    "9229": { "label": "Node Debugger" },
+    "19000": { "label": "Expo" },
+    "19001": { "label": "Expo DevTools" },
+    "19002": { "label": "Expo Web" },
     "5432": { "label": "PostgreSQL" },
     "3306": { "label": "MySQL" },
     "6379": { "label": "Redis" },
-    "27017": { "label": "MongoDB" }
-  }
+    "27017": { "label": "MongoDB" },
+  },
 }
