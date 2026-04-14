@@ -111,6 +111,7 @@ section_build_tools() {
         mesa-libGL-devel \
         libXrandr-devel \
         libXcursor-devel \
+        libsecret-devel \
         pkgconfig \
         libX11-devel \
         libXrender-devel \
