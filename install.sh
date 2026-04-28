@@ -179,7 +179,6 @@ section_flatpak() {
 #
 #     flatpak install flathub dev.zed.Zed
 #     flatpak install flathub org.fedoraproject.MediaWriter
-#     flatpak install flathub fr.handbrake.ghb
 #     flatpak install flathub chat.schildi.desktop
 #     flatpak install flathub org.gimp.GIMP
 #     flatpak install flathub org.gnome.Boxes
@@ -433,43 +432,67 @@ section_dev_tools() {
 ################################################################################
 #              SECTION 8: DOCKER & DOCKER COMPOSE
 #
-#   Docker enables containerized development and testing.
-#   Auto-start daemon is configured to run on boot.
-#   Dev Containers extension for VS Code & Zed allows container-based development.
+#   Installs Docker Engine from Docker's official RPM repository.
+#   Includes: docker-ce, docker-ce-cli, containerd.io,
+#             docker-buildx-plugin, docker-compose-plugin
 #
-#   SECURITY NOTE: Adding user to the docker group grants privileges equivalent
-#   to root access. Only add trusted users to the docker group. Users in the
-#   docker group can mount volumes and access host files with full permissions.
-#   For production systems, consider using rootless Docker.
-#   See: https://docs.docker.com/engine/security/rootless/
+#   SECURITY NOTE: Adding a user to the docker group grants privileges
+#   equivalent to root. Only add trusted users. For production systems,
+#   consider rootless Docker: https://docs.docker.com/engine/security/rootless/
 ################################################################################
 
 section_docker() {
     print_section "DOCKER & DOCKER COMPOSE"
 
-    print_info "Installing Docker..."
-    dnf install -y docker docker-compose
+    # ── Remove any old/conflicting Docker packages ────────────────────────────
+    print_info "Removing any conflicting legacy Docker packages..."
+    dnf remove -y \
+        docker \
+        docker-client \
+        docker-client-latest \
+        docker-common \
+        docker-latest \
+        docker-latest-logrotate \
+        docker-logrotate \
+        docker-selinux \
+        docker-engine-selinux \
+        docker-engine 2>/dev/null || true
+    print_success "Legacy packages removed (or were not present)"
+
+    # ── Add Docker's official RPM repository ─────────────────────────────────
+    print_info "Adding Docker's official RPM repository..."
+    dnf config-manager addrepo \
+        --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
+    print_success "Docker repository added"
+
+    # ── Install Docker Engine + Compose plugin ────────────────────────────────
+    print_info "Installing Docker Engine, CLI, containerd, and plugins..."
+    dnf install -y \
+        docker-ce \
+        docker-ce-cli \
+        containerd.io \
+        docker-buildx-plugin \
+        docker-compose-plugin
     print_success "Docker installed"
 
-    print_warning "SECURITY: Adding user to docker group grants root-level privileges."
-    print_warning "Only add trusted users. For more info: https://docs.docker.com/engine/install/linux-postinstall/"
-
-    print_info "Adding current user to docker group..."
+    # ── Add user to docker group ──────────────────────────────────────────────
+    print_warning "SECURITY: Adding '$SUDO_USER' to the docker group grants root-level privileges."
+    print_warning "See: https://docs.docker.com/engine/install/linux-postinstall/"
     usermod -aG docker "$SUDO_USER"
-    print_success "User added to docker group (restart shell to take effect)"
+    print_success "User '$SUDO_USER' added to docker group (takes effect after next login)"
 
+    # ── Enable and start Docker daemon ────────────────────────────────────────
     print_info "Enabling and starting Docker daemon..."
-    systemctl enable docker
-    systemctl start docker
+    systemctl enable --now docker
     print_success "Docker daemon enabled and started"
 
+    # ── Verify installation ───────────────────────────────────────────────────
     print_info "Verifying Docker installation..."
     docker --version
-    docker-compose --version
+    docker compose version
     print_success "Docker verified"
 
-    print_warning "You may need to restart your shell for group changes to take effect"
-    print_warning "Or run: newgrp docker"
+    print_warning "Run 'newgrp docker' or log out and back in for group changes to take effect"
 }
 
 ################################################################################
