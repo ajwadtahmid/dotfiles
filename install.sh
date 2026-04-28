@@ -230,11 +230,11 @@ section_zed_atuin() {
 
     print_section "ATUIN SHELL HISTORY MANAGER"
 
-    if sudo -Hu "$SUDO_USER" bash -c 'command -v atuin >/dev/null 2>&1 || [ -x "$HOME/.local/bin/atuin" ]'; then
+    if sudo -Hu "$SUDO_USER" bash -c 'command -v atuin >/dev/null 2>&1 || [ -x "$HOME/.local/bin/atuin" ] || [ -x "$HOME/.atuin/bin/atuin" ]'; then
         print_info "Atuin already installed — skipping"
     else
         print_info "Installing Atuin shell history manager..."
-        sudo -Hu "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh'
+        sudo -Hu "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- -y'
         print_success "Atuin installed"
     fi
 
@@ -462,7 +462,7 @@ section_docker() {
     # ── Add Docker's official RPM repository ─────────────────────────────────
     print_info "Adding Docker's official RPM repository..."
     dnf config-manager addrepo \
-        --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
+        --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo --overwrite
     print_success "Docker repository added"
 
     # ── Install Docker Engine + Compose plugin ────────────────────────────────
