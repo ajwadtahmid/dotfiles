@@ -26,7 +26,7 @@ NC='\033[0m' # No Color
 
 # Git Configuration (set your details here)
 GIT_USERNAME="Ajwad Tahmid"           # Change to your name
-GIT_EMAIL="dev@ajwadtahmid.com" # Change to your email
+GIT_EMAIL="dev@ajwadtahmid.com"       # Change to your email
 
 ################################################################################
 #                         HELPER FUNCTIONS
@@ -90,13 +90,13 @@ section_system_updates() {
 }
 
 ################################################################################
-#               SECTION 2: ESSENTIAL SOFTWARES
+#               SECTION 2: ESSENTIAL SOFTWARE
 ################################################################################
 
 section_build_tools() {
-    print_section "ESSENTIAL SOFTWARES"
+    print_section "ESSENTIAL SOFTWARE"
 
-    print_info "Installing essential softwares..."
+    print_info "Installing essential software..."
     dnf install -y \
         gcc \
         gcc-c++ \
@@ -212,13 +212,13 @@ section_mullvad_vpn() {
 }
 
 ################################################################################
-#              SECTION 5: ZED EDITOR
+#              SECTION 5: ZED EDITOR & ATUIN
 #
 #   Zed is a minimal code editor crafted for speed.
 #   Install from official Zed repository for security and automatic updates.
 ################################################################################
 
-section_zed_editor() {
+section_zed_atuin() {
     print_section "ZED EDITOR"
 
     if sudo -Hu "$SUDO_USER" bash -c 'command -v zed >/dev/null 2>&1 || [ -x "$HOME/.local/bin/zed" ]'; then
@@ -228,6 +228,18 @@ section_zed_editor() {
         sudo -Hu "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
         print_success "Zed installed"
     fi
+
+    print_section "ATUIN SHELL HISTORY MANAGER"
+
+    if sudo -Hu "$SUDO_USER" bash -c 'command -v atuin >/dev/null 2>&1 || [ -x "$HOME/.local/bin/atuin" ]'; then
+        print_info "Atuin already installed — skipping"
+    else
+        print_info "Installing Atuin shell history manager..."
+        sudo -Hu "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh'
+        print_success "Atuin installed"
+    fi
+
+
 }
 
 ################################################################################
@@ -849,10 +861,10 @@ main() {
     section_build_tools
     section_flatpak
     section_mullvad_vpn
-    section_zed_editor
+    section_zed_atuin
+    section_git_config
     section_dev_tools
     section_docker
-    section_git_config
     section_customization
     section_devcontainers
     section_summary
