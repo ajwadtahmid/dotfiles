@@ -233,11 +233,24 @@ section_zed_atuin() {
     if sudo -Hu "$SUDO_USER" bash -c 'command -v atuin >/dev/null 2>&1 || [ -x "$HOME/.local/bin/atuin" ] || [ -x "$HOME/.atuin/bin/atuin" ]'; then
         print_info "Atuin already installed — skipping"
     else
-        print_info "Installing Atuin shell history manager..."
-        sudo -Hu "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- -y'
+        print_info "Installing Atuin shell history manager (non-interactive)..."
+        sudo -Hu "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- -y' < /dev/null
         print_success "Atuin installed"
-    fi
 
+        print_info "Configuring Atuin: disabling sync and AI features..."
+        CONFIG_DIR="$USER_HOME/.config/atuin"
+        mkdir -p "$CONFIG_DIR"
+        cat > "$CONFIG_DIR/settings.toml" << 'ATUIN_CONFIG'
+# Atuin configuration — local history only, no sync or AI
+auto_sync = false
+sync_address = ""
+
+[stats]
+enabled = false
+ATUIN_CONFIG
+        chown "$SUDO_USER:$SUDO_USER" "$CONFIG_DIR/settings.toml"
+        print_success "Atuin configured"
+    fi
 
 }
 
@@ -362,23 +375,42 @@ section_dev_tools() {
     fi
     print_success "Rustup installed"
 
-    # ── Java 21 + Maven ───────────────────────────────────────────────────────
-    print_info "Installing Java 21 and Maven..."
-    dnf install -y java-21-openjdk java-21-openjdk-devel maven
-    print_success "Java 21 and Maven installed"
-
-    # ── SDKMAN → Gradle + Spring Boot CLI ────────────────────────────────────
+    # ── SDKMAN → Java 21, Gradle + Spring Boot CLI ───────────────────────────
     print_info "Installing SDKMAN..."
     if [[ -d "$USER_HOME/.sdkman" ]]; then
         print_info "SDKMAN already installed — skipping installer"
     else
         sudo -Hu "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
     fi
+    JAVA_VERSION="21.0.6-open"
     sudo -Hu "$SUDO_USER" bash -c \
         'source "$HOME/.sdkman/bin/sdkman-init.sh" && \
+         echo "n" | sdk install java '"$JAVA_VERSION"' && \
+         sdk default java '"$JAVA_VERSION"' && \
          echo "n" | sdk install gradle && \
          echo "n" | sdk install springboot'
-    print_success "Gradle and Spring Boot CLI installed via SDKMAN"
+    print_success "Java 21, Gradle, and Spring Boot CLI installed via SDKMAN"
+
+    # ── Set SDKMAN Java 21 as default system Java + install latest Java as fallback ────
+    print_info "Setting SDKMAN Java 21 as default system Java..."
+
+    # SDKMAN installs to ~/.sdkman/candidates/java/<version> and creates a 'current' symlink
+    SDKMAN_JAVA_PATH="$USER_HOME/.sdkman/candidates/java/current"
+
+    if [[ -f "$SDKMAN_JAVA_PATH/bin/java" ]]; then
+        # Register SDKMAN Java as the default alternative (priority 100)
+        update-alternatives --install /usr/bin/java java "$SDKMAN_JAVA_PATH/bin/java" 100
+        update-alternatives --install /usr/bin/javac javac "$SDKMAN_JAVA_PATH/bin/javac" 100
+        update-alternatives --install /usr/bin/jar jar "$SDKMAN_JAVA_PATH/bin/jar" 100
+        print_success "SDKMAN Java 21 set as default system Java"
+    else
+        print_warning "SDKMAN Java 21 not found at expected path — skipping alternatives setup"
+    fi
+
+    # Install latest Java from dnf as fallback
+    print_info "Installing latest Java from dnf as fallback..."
+    dnf install -y java-latest-openjdk java-latest-openjdk-devel maven
+    print_success "Latest Java and Maven installed as fallback"
 
     # ── PostgreSQL ────────────────────────────────────────────────────────────
     print_info "Installing PostgreSQL..."
