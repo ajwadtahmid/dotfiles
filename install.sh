@@ -234,24 +234,9 @@ section_zed_atuin() {
         print_info "Atuin already installed — skipping"
     else
         print_info "Installing Atuin shell history manager (non-interactive)..."
-        sudo -Hu "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- -y' < /dev/null
+        sudo -Hu "$SUDO_USER" bash -c 'curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive'
         print_success "Atuin installed"
-
-        print_info "Configuring Atuin: disabling sync and AI features..."
-        CONFIG_DIR="$USER_HOME/.config/atuin"
-        mkdir -p "$CONFIG_DIR"
-        cat > "$CONFIG_DIR/settings.toml" << 'ATUIN_CONFIG'
-# Atuin configuration — local history only, no sync or AI
-auto_sync = false
-sync_address = ""
-
-[stats]
-enabled = false
-ATUIN_CONFIG
-        chown "$SUDO_USER:$SUDO_USER" "$CONFIG_DIR/settings.toml"
-        print_success "Atuin configured"
     fi
-
 }
 
 ################################################################################
@@ -382,7 +367,7 @@ section_dev_tools() {
     else
         sudo -Hu "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
     fi
-    JAVA_VERSION="21.0.6-open"
+    JAVA_VERSION="21.0.2-open"
     sudo -Hu "$SUDO_USER" bash -c \
         'source "$HOME/.sdkman/bin/sdkman-init.sh" && \
          echo "n" | sdk install java '"$JAVA_VERSION"' && \
