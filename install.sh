@@ -115,6 +115,7 @@ section_build_tools() {
         pkgconfig \
         libX11-devel \
         libXrender-devel \
+        libcurl-devel \
         unzip \
         xz \
         zip \
