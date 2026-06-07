@@ -5,8 +5,25 @@
 #
 #   An installation script for Fedora Linux
 #
-#   Usage: chmod +x install.sh && bash install.sh
-#   Tested on: Fedora 43
+#   Usage: chmod +x install.sh && sudo bash install.sh
+#
+#   Two install modes (selected at runtime, or via --mode flag):
+#
+#     1) baremetal    Installs the full toolchain on the host machine
+#                     (sections 1-9). Optionally also sets up dev
+#                     containers (section 10).
+#
+#     2) devcontainer Installs only the base + Docker + dev container
+#                     tooling (sections 1-6, 8, 9, 10). Does NOT install
+#                     native dev runtimes/languages/DBs (section 7) on
+#                     the host — all development happens inside containers.
+#
+#   Non-interactive examples:
+#     sudo bash install.sh --mode baremetal
+#     sudo bash install.sh --mode baremetal --with-devcontainer
+#     sudo bash install.sh --mode devcontainer
+#
+#   Tested on: Fedora 43/44
 #
 ################################################################################
 
@@ -54,6 +71,37 @@ print_error() {
     echo -e "${RED}✗ $1${NC}"
 }
 
+# Non-critical steps that may legitimately fail (a removed Flatpak ref, a
+# transient network error, an unavailable SDKMAN build) are run through soft().
+# Because the command runs inside an `if`, `set -e` will NOT abort the script;
+# instead the failure is recorded in WARNINGS and reported in the final summary.
+WARNINGS=()
+soft() {
+    local desc="$1"; shift
+    if "$@"; then
+        return 0
+    else
+        WARNINGS+=("$desc")
+        print_warning "Skipped (failed): $desc"
+        return 0
+    fi
+}
+
+# Append a single line to the user's ~/.bashrc exactly once (idempotent).
+# Optionally precedes it with a comment header on first insertion.
+append_bashrc() {
+    local line="$1" comment="${2:-}"
+    local bashrc="$USER_HOME/.bashrc"
+    if sudo -Hu "$SUDO_USER" grep -Fxq "$line" "$bashrc" 2>/dev/null; then
+        print_info "Already in ~/.bashrc: ${comment:-$line}"
+        return 0
+    fi
+    echo "" | sudo -Hu "$SUDO_USER" tee -a "$bashrc" > /dev/null
+    [[ -n "$comment" ]] && echo "$comment" | sudo -Hu "$SUDO_USER" tee -a "$bashrc" > /dev/null
+    echo "$line" | sudo -Hu "$SUDO_USER" tee -a "$bashrc" > /dev/null
+    print_success "Added to ~/.bashrc: ${comment:-$line}"
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "This script must be run with sudo (e.g. 'sudo bash install.sh')"
@@ -73,6 +121,90 @@ check_root() {
 }
 
 ################################################################################
+#                         INSTALL MODE SELECTION
+#
+#   Two modes:
+#     baremetal    -> sections 1-9 (full host toolchain), optional section 10
+#     devcontainer -> sections 1-6, 8, 9, 10 (no native dev tools on host)
+#
+#   Mode and options can be set via flags (--mode, --with-devcontainer) or
+#   chosen interactively when not supplied.
+################################################################################
+
+# Defaults (may be overridden by flags or the interactive prompt)
+INSTALL_MODE=""          # "baremetal" or "devcontainer"
+WITH_DEVCONTAINER=false  # baremetal-only: also run section 10
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --mode)
+                INSTALL_MODE="${2:-}"
+                shift 2
+                ;;
+            --mode=*)
+                INSTALL_MODE="${1#*=}"
+                shift
+                ;;
+            --with-devcontainer)
+                WITH_DEVCONTAINER=true
+                shift
+                ;;
+            -h|--help)
+                grep '^#' "$0" | sed 's/^#//' | head -n 40
+                exit 0
+                ;;
+            *)
+                print_error "Unknown argument: $1"
+                exit 1
+                ;;
+        esac
+    done
+
+    if [[ -n "$INSTALL_MODE" && "$INSTALL_MODE" != "baremetal" && "$INSTALL_MODE" != "devcontainer" ]]; then
+        print_error "Invalid --mode '$INSTALL_MODE' (expected 'baremetal' or 'devcontainer')"
+        exit 1
+    fi
+}
+
+select_mode() {
+    # If mode already supplied via flag, don't prompt for it.
+    if [[ -z "$INSTALL_MODE" ]]; then
+        print_section "SELECT INSTALL MODE"
+        echo "  1) Baremetal   - Full dev toolchain installed on this machine"
+        echo "                   (languages, runtimes, databases, Docker, etc.)"
+        echo ""
+        echo "  2) Devcontainer- Only base system + Docker + dev container tooling."
+        echo "                   No native dev tools on the host; you develop"
+        echo "                   entirely inside containers."
+        echo ""
+        read -p "Enter choice [1-2]: " MODE_CHOICE
+        case "$MODE_CHOICE" in
+            1) INSTALL_MODE="baremetal" ;;
+            2) INSTALL_MODE="devcontainer" ;;
+            *)
+                print_warning "Invalid choice. Defaulting to baremetal."
+                INSTALL_MODE="baremetal"
+                ;;
+        esac
+    fi
+
+    # For baremetal, optionally also set up dev containers (section 10).
+    if [[ "$INSTALL_MODE" == "baremetal" && "$WITH_DEVCONTAINER" == "false" ]]; then
+        read -p "Also set up dev containers (devcontainer CLI + template)? [y/N]: " DC_CHOICE
+        case "$DC_CHOICE" in
+            [yY]|[yY][eE][sS]) WITH_DEVCONTAINER=true ;;
+            *) WITH_DEVCONTAINER=false ;;
+        esac
+    fi
+
+    print_info "Install mode: $INSTALL_MODE"
+    if [[ "$INSTALL_MODE" == "baremetal" ]]; then
+        print_info "Dev containers: $([[ "$WITH_DEVCONTAINER" == "true" ]] && echo "yes" || echo "no")"
+    fi
+}
+
+################################################################################
 #                    SECTION 1: SYSTEM UPDATES & RPM FUSION
 ################################################################################
 
@@ -82,6 +214,13 @@ section_system_updates() {
     print_info "Updating system packages..."
     dnf upgrade -y
     print_success "System updated"
+
+    # dnf5-plugins provides `dnf config-manager`, used later to add the Mullvad
+    # (Section 4) and Docker (Section 8) repositories. Not always present on a
+    # fresh/minimal Fedora install, so ensure it here before anything needs it.
+    print_info "Installing dnf5-plugins (provides 'dnf config-manager')..."
+    dnf install -y dnf5-plugins
+    print_success "dnf5-plugins installed"
 
     print_info "Installing RPM Fusion repositories..."
     dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
@@ -126,6 +265,12 @@ section_build_tools() {
         fastfetch \
         zsh \
         curl \
+        jq \
+        ripgrep \
+        fzf \
+        gh \
+        zoxide \
+        tmux \
         steam \
         gnome-disk-utility \
         mangohud \
@@ -134,6 +279,12 @@ section_build_tools() {
     print_info "Initializing Git LFS..."
     sudo -Hu "$SUDO_USER" git lfs install
     print_success "Git LFS initialized"
+
+    # Shell integration for the CLI tools just installed (no-ops if a future
+    # shell can't find the binary, thanks to the command -v guards).
+    print_info "Wiring zoxide and fzf into ~/.bashrc..."
+    append_bashrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"' '# zoxide (smarter cd)'
+    append_bashrc 'command -v fzf >/dev/null 2>&1 && eval "$(fzf --bash)"' '# fzf (fuzzy finder)'
 }
 
 ################################################################################
@@ -147,33 +298,42 @@ section_flatpak() {
     flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     print_success "Flathub added"
 
-    print_info "Installing Flatpak applications..."
-    flatpak install -y flathub \
-        io.github.kolunmi.Bazaar \
-        com.discordapp.Discord \
-        com.brave.Browser \
-        app.zen_browser.zen \
-        org.videolan.VLC \
-        io.ente.photos \
-        com.github.tchx84.Flatseal \
-        org.onlyoffice.desktopeditors \
-        com.vysp3r.ProtonPlus \
-        org.flameshot.Flameshot \
-        org.qbittorrent.qBittorrent \
-        im.riot.Riot \
-        com.obsproject.Studio \
-        io.github.peazip.PeaZip \
-        org.mozilla.Thunderbird \
-        org.kde.kdenlive \
-        io.freetubeapp.FreeTube \
-        com.github.Matoking.protontricks \
-        com.usebruno.Bruno \
-        org.godotengine.Godot \
-        fr.handbrake.ghb \
-        net.cozic.joplin_desktop \
+    # Installed one-by-one (not as a single batch) so that a single removed or
+    # renamed ref only skips that app and is reported at the end, instead of
+    # aborting the whole Flatpak install.
+    FLATPAK_APPS=(
+        io.github.kolunmi.Bazaar
+        com.discordapp.Discord
+        com.brave.Browser
+        app.zen_browser.zen
+        org.videolan.VLC
+        io.ente.photos
+        com.github.tchx84.Flatseal
+        org.onlyoffice.desktopeditors
+        com.vysp3r.ProtonPlus
+        org.flameshot.Flameshot
+        org.qbittorrent.qBittorrent
+        im.riot.Riot
+        com.obsproject.Studio
+        io.github.peazip.PeaZip
+        org.mozilla.Thunderbird
+        org.kde.kdenlive
+        io.freetubeapp.FreeTube
+        com.github.Matoking.protontricks
+        com.usebruno.Bruno
+        org.godotengine.Godot
+        fr.handbrake.ghb
+        net.cozic.joplin_desktop
         net.mullvad.MullvadBrowser
+    )
 
-    print_success "Core Flatpak applications installed"
+    print_info "Installing ${#FLATPAK_APPS[@]} Flatpak applications..."
+    for app in "${FLATPAK_APPS[@]}"; do
+        print_info "  → $app"
+        soft "Flatpak app: $app" flatpak install -y flathub "$app"
+    done
+
+    print_success "Flatpak applications processed"
 }
 
 #   Uncomment the apps you need, otherwise keep commented.
@@ -205,8 +365,7 @@ section_mullvad_vpn() {
     print_success "Mullvad repository added"
 
     print_info "Installing Mullvad VPN..."
-    dnf install -y mullvad-vpn
-    print_success "Mullvad VPN installed"
+    soft "Mullvad VPN" dnf install -y mullvad-vpn
 
     print_info "Official site: https://mullvad.net"
 }
@@ -225,8 +384,7 @@ section_zed_atuin() {
         print_info "Zed already installed — skipping"
     else
         print_info "Installing Zed editor..."
-        sudo -Hu "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
-        print_success "Zed installed"
+        soft "Zed editor" sudo -Hu "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
     fi
 
     print_section "ATUIN SHELL HISTORY MANAGER"
@@ -235,9 +393,13 @@ section_zed_atuin() {
         print_info "Atuin already installed — skipping"
     else
         print_info "Installing Atuin shell history manager (non-interactive)..."
-        sudo -Hu "$SUDO_USER" bash -c 'curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive'
-        print_success "Atuin installed"
+        soft "Atuin" sudo -Hu "$SUDO_USER" bash -c 'curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive'
     fi
+
+    # Atuin's own installer wires shell integration into ~/.bashrc, so we don't
+    # add it here. If it ever stops doing that, uncomment the line below and
+    # re-run the script:
+    # append_bashrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init bash)"' '# atuin (shell history)'
 }
 
 ################################################################################
@@ -268,10 +430,10 @@ section_git_config() {
 #              SECTION 7: DEV TOOLS
 #
 #   Installs development runtimes, languages, and local database services:
-#     - NVM + Node LTS, TypeScript, React Native, Expo CLI
+#     - NVM + Node LTS, React Native, Expo CLI
 #     - Go, Flutter + Dart, Rustup
 #     - Java 21, Maven, Gradle, Spring Boot CLI (via SDKMAN)
-#     - PostgreSQL, MariaDB, MongoDB (local services)
+#     - PostgreSQL, MariaDB (local services)
 #
 #   SECURITY NOTE: Database services are configured for local development only.
 #   Change default credentials before exposing to any network.
@@ -346,7 +508,9 @@ section_dev_tools() {
 
     sudo -Hu "$SUDO_USER" bash -c "export PATH=\"\$PATH:$FLUTTER_DIR/bin\" && flutter precache"
 
-    export CHROME_EXECUTABLE=/var/lib/flatpak/exports/bin/com.brave.Browser
+    # Persist CHROME_EXECUTABLE so Flutter web finds Brave in future shells
+    # (a bare `export` here would only live for the duration of this script).
+    append_bashrc 'export CHROME_EXECUTABLE=/var/lib/flatpak/exports/bin/com.brave.Browser' '# Flutter: use Brave for web'
 
     print_success "Flutter + Dart installed and Brave set as CHROME_EXECUTABLE"
 
@@ -368,17 +532,25 @@ section_dev_tools() {
     else
         sudo -Hu "$SUDO_USER" bash -c 'curl -s "https://get.sdkman.io" | bash'
     fi
-    JAVA_VERSION="21.0.2-open"
-    sudo -Hu "$SUDO_USER" bash -c \
+    # Resolve the newest 21.x "open" (OpenJDK) build from SDKMAN at runtime so
+    # this never goes stale when SDKMAN rotates out an old patch release. Falls
+    # back to a known-good pin if the API is unreachable.
+    JAVA_VERSION=$(curl -s "https://api.sdkman.io/2/candidates/java/linuxx64/versions/list?installed=" 2>/dev/null \
+        | grep -oE '21\.[0-9.]+-open' | sort -V | tail -1)
+    if [[ -z "$JAVA_VERSION" ]]; then
+        JAVA_VERSION="21.0.2-open"
+        print_warning "Could not query SDKMAN for latest Java 21 — using fallback $JAVA_VERSION"
+    fi
+    print_info "Installing Java $JAVA_VERSION, Gradle, and Spring Boot CLI via SDKMAN..."
+    soft "SDKMAN Java/Gradle/Spring Boot" sudo -Hu "$SUDO_USER" bash -c \
         'source "$HOME/.sdkman/bin/sdkman-init.sh" && \
          echo "n" | sdk install java '"$JAVA_VERSION"' && \
          sdk default java '"$JAVA_VERSION"' && \
          echo "n" | sdk install gradle && \
          echo "n" | sdk install springboot'
-    print_success "Java 21, Gradle, and Spring Boot CLI installed via SDKMAN"
 
-    # ── Set SDKMAN Java 21 as default system Java + install latest Java as fallback ────
-    print_info "Setting SDKMAN Java 21 as default system Java..."
+    # ── Make SDKMAN Java the system default; fall back to dnf only if it failed ──
+    print_info "Setting SDKMAN Java as default system Java..."
 
     # SDKMAN installs to ~/.sdkman/candidates/java/<version> and creates a 'current' symlink
     SDKMAN_JAVA_PATH="$USER_HOME/.sdkman/candidates/java/current"
@@ -388,15 +560,18 @@ section_dev_tools() {
         update-alternatives --install /usr/bin/java java "$SDKMAN_JAVA_PATH/bin/java" 100
         update-alternatives --install /usr/bin/javac javac "$SDKMAN_JAVA_PATH/bin/javac" 100
         update-alternatives --install /usr/bin/jar jar "$SDKMAN_JAVA_PATH/bin/jar" 100
-        print_success "SDKMAN Java 21 set as default system Java"
+        print_success "SDKMAN Java set as default system Java"
     else
-        print_warning "SDKMAN Java 21 not found at expected path — skipping alternatives setup"
+        # SDKMAN install failed (already recorded in WARNINGS). No dnf fallback —
+        # SDKMAN is the single source of truth for Java. Re-run to retry, or
+        # install a JDK manually with: sdk install java
+        print_warning "SDKMAN Java not found — no Java installed. Re-run to retry."
     fi
 
-    # Install latest Java from dnf as fallback
-    print_info "Installing latest Java from dnf as fallback..."
-    dnf install -y java-latest-openjdk java-latest-openjdk-devel maven
-    print_success "Latest Java and Maven installed as fallback"
+    # Maven is always installed via dnf (SDKMAN provides Gradle/Spring Boot, not Maven here).
+    print_info "Installing Maven..."
+    dnf install -y maven
+    print_success "Maven installed"
 
     # ── PostgreSQL ────────────────────────────────────────────────────────────
     print_info "Installing PostgreSQL..."
@@ -407,14 +582,24 @@ section_dev_tools() {
         postgresql-setup --initdb
     fi
     systemctl enable postgresql
-    systemctl start postgresql
+    soft "PostgreSQL service start" systemctl start postgresql
+
+    # Account setup wrapped in a function so soft() can run it without set -e
+    # aborting the whole section if the service above didn't come up.
+    _pg_dev_account() {
+        sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='dev'" | grep -q 1 || \
+            sudo -u postgres psql -c "CREATE USER dev WITH PASSWORD 'dev';"
+        sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='devdb'" | grep -q 1 || \
+            sudo -u postgres psql -c "CREATE DATABASE devdb OWNER dev;"
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devdb TO dev;"
+    }
     print_info "Creating PostgreSQL dev account (if missing)..."
-    sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='dev'" | grep -q 1 || \
-        sudo -u postgres psql -c "CREATE USER dev WITH PASSWORD 'dev';"
-    sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='devdb'" | grep -q 1 || \
-        sudo -u postgres psql -c "CREATE DATABASE devdb OWNER dev;"
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE devdb TO dev;"
-    print_success "PostgreSQL installed — user: dev, password: dev, db: devdb"
+    if _pg_dev_account; then
+        print_success "PostgreSQL installed — user: dev, password: dev, db: devdb"
+    else
+        WARNINGS+=("PostgreSQL dev account setup")
+        print_warning "PostgreSQL dev account setup failed (is the service running?)"
+    fi
 
     # ── MariaDB ───────────────────────────────────────────────────────────────
     print_info "Installing MariaDB..."
@@ -562,15 +747,18 @@ section_customization() {
 ################################################################################
 #              SECTION 10: DEV CONTAINERS
 #
-#   Installs the devcontainer CLI and scaffolds a reusable template at
+#   Scaffolds a reusable dev container template at
 #   ~/.dotfiles/devcontainer-template/.devcontainer/ containing:
 #     - devcontainer.json  (VS Code extensions, port forwarding, remoteUser)
 #     - docker-compose.yml (app + PostgreSQL + MySQL + MongoDB)
 #
+#   No standalone devcontainer CLI is installed — container orchestration is
+#   handled by your editor (Zed or VS Code "Reopen in Container"), so the npm
+#   '@devcontainers/cli' (and Node) is intentionally not required on the host.
+#
 #   To use the template in a project:
 #     cp -r ~/.dotfiles/devcontainer-template/.devcontainer /path/to/your/project/
-#   Then open the project in VS Code and run:
-#     "Dev Containers: Reopen in Container"
+#   Then open the project in your editor and reopen in the container.
 #
 #   SECURITY NOTE: Database credentials are for LOCAL DEVELOPMENT ONLY.
 #   Never use them in production or any network-exposed environment.
@@ -789,7 +977,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host side remapped to 5433 to avoid clashing with a baremetal PostgreSQL
+      # on 5432. Inside the dev container, code still connects via "postgres:5432"
+      # over the compose network — this mapping only affects host-side access.
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d devdb"]
       interval: 5s
@@ -808,7 +999,10 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
-      - "127.0.0.1:3306:3306"
+      # Host side remapped to 3307 to avoid clashing with a baremetal MariaDB on
+      # 3306. Inside the dev container, code still connects via "mysql:3306" over
+      # the compose network — this mapping only affects host-side access.
+      - "127.0.0.1:3307:3306"
     healthcheck:
       # Using MYSQL_PWD avoids the "password on command line is insecure" warning
       test: ["CMD-SHELL", "MYSQL_PWD=dev mysqladmin ping -h localhost -u dev"]
@@ -852,6 +1046,12 @@ services:
 # ─── Named volumes ─────────────────────────────────────────────────────────────
 # To wipe a database and start fresh, delete its volume:
 #   docker volume rm .devcontainer_postgres_data
+#
+# Database image tags are pinned to MAJOR versions on purpose — never use
+# `latest` for a stateful service. To bump a major version (e.g. postgres:17 ->
+# 18, mysql:8.4 -> 9.x), the existing data directory is usually NOT
+# forward-compatible: either start fresh by deleting that DB's volume (above),
+# or run the engine's documented upgrade path (e.g. pg_upgrade) before switching.
 volumes:
   postgres_data:
   mysql_data:
@@ -864,7 +1064,7 @@ DOCKER_COMPOSE_YML
     print_success "Ownership set for ~/.dotfiles"
 
     print_info "To use: cp -r ~/.dotfiles/devcontainer-template/.devcontainer /your/project/"
-    print_info "Then in VS Code: 'Dev Containers: Reopen in Container'"
+    print_info "Then reopen the project in a container from your editor (Zed or VS Code)"
 }
 
 ################################################################################
@@ -887,6 +1087,19 @@ section_summary() {
     echo "    cat ~/.ssh/id_ed25519.pub, then add it to GitHub/GitLab"
     echo ""
 
+    # Report any non-critical steps that were skipped/failed during the run.
+    if [[ ${#WARNINGS[@]} -gt 0 ]]; then
+        print_warning "${#WARNINGS[@]} optional step(s) were skipped or failed:"
+        for w in "${WARNINGS[@]}"; do
+            echo "    - $w"
+        done
+        echo ""
+        print_info "Re-run the script to retry, or install these manually."
+        echo ""
+    else
+        print_success "All steps completed with no skipped items."
+    fi
+
     print_success "Setup complete. Happy coding!"
 }
 
@@ -897,19 +1110,38 @@ section_summary() {
 main() {
     print_info "Starting Fedora Developer Setup..."
     check_root
+    parse_args "$@"
+    select_mode
 
-    section_system_updates
-    section_build_tools
-    section_flatpak
-    section_mullvad_vpn
-    section_zed_atuin
-    section_git_config
-    section_dev_tools
-    section_docker
-    section_customization
-    section_devcontainers
+    # ── Common base (sections 1-6) ────────────────────────────────────────────
+    section_system_updates   # Section 1
+    section_build_tools      # Section 2
+    section_flatpak          # Section 3
+    section_mullvad_vpn      # Section 4
+    section_zed_atuin        # Section 5
+    section_git_config       # Section 6
+
+    # ── Native dev tools (section 7) — baremetal only ─────────────────────────
+    if [[ "$INSTALL_MODE" == "baremetal" ]]; then
+        section_dev_tools    # Section 7
+    else
+        print_info "Skipping native dev tools (section 7) — devcontainer mode."
+    fi
+
+    # ── Docker + customization (sections 8-9) — both modes ─────────────────────
+    section_docker           # Section 8
+    section_customization    # Section 9
+
+    # ── Dev containers (section 10) ───────────────────────────────────────────
+    # Always in devcontainer mode; opt-in for baremetal.
+    if [[ "$INSTALL_MODE" == "devcontainer" || "$WITH_DEVCONTAINER" == "true" ]]; then
+        section_devcontainers   # Section 10
+    else
+        print_info "Skipping dev containers (section 10)."
+    fi
+
     section_summary
 }
 
 # Run main function
-main
+main "$@"
