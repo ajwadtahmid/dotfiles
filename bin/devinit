@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# devinit — drop the universal .devcontainer/ template into a project.
+#
+# Usage:
+#   devinit [target-dir]     # defaults to the current directory
+#
+# Copies the dev container template created by the dotfiles installer
+# (~/.dotfiles/devcontainer-template/.devcontainer) into <target-dir>/.devcontainer
+# so you can immediately "Reopen in Container" from your editor.
+#
+set -euo pipefail
+
+TEMPLATE="${DEVCONTAINER_TEMPLATE:-$HOME/.dotfiles/devcontainer-template/.devcontainer}"
+TARGET_DIR="${1:-.}"
+DEST="$TARGET_DIR/.devcontainer"
+
+if [[ ! -d "$TEMPLATE" ]]; then
+    echo "devinit: template not found at $TEMPLATE" >&2
+    echo "         Re-run your dotfiles install script (dev container section) first." >&2
+    exit 1
+fi
+
+if [[ ! -d "$TARGET_DIR" ]]; then
+    echo "devinit: target directory '$TARGET_DIR' does not exist." >&2
+    exit 1
+fi
+
+if [[ -e "$DEST" ]]; then
+    echo "devinit: '$DEST' already exists — refusing to overwrite." >&2
+    echo "         Remove it first if you want to regenerate." >&2
+    exit 1
+fi
+
+cp -r "$TEMPLATE" "$DEST"
+echo "✓ Dev container template copied to $DEST"
+echo "  Next: open the project in your editor and choose 'Reopen in Container'."

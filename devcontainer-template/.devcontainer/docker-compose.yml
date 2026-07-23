@@ -1,15 +1,19 @@
 # SECURITY WARNING: Credentials below are for LOCAL DEVELOPMENT ONLY.
 # Never use them in production, staging, or any network-exposed environment.
 services:
+
   # ─── Dev container ──────────────────────────────────────────────────────────
   app:
-    image: ghcr.io/ajwadtahmid/devenv:latest
+    # Pin a reproducible build by exporting DEVENV_TAG=YYYY.MM.DD (a dated tag
+    # published by .github/workflows/devenv.yml). Defaults to :latest so it
+    # always resolves.
+    image: ghcr.io/ajwadtahmid/devenv:${DEVENV_TAG:-latest}
     volumes:
-      - ..:/workspace:cached # Project root (one level up from .devcontainer/)
-      - ~/.ssh:/home/dev/.ssh:ro # SSH keys for git over SSH
+      - ..:/workspace:cached               # Project root (one level up from .devcontainer/)
+      - ~/.ssh:/home/dev/.ssh:ro           # SSH keys for git over SSH
       - ~/.gitconfig:/home/dev/.gitconfig:ro
-      - ~/.claude:/home/dev/.claude # Claude Code credentials (Pro/Max OAuth)
-    command: sleep infinity # Keep the container alive
+      - ~/.claude:/home/dev/.claude        # Claude Code credentials (Pro/Max OAuth)
+    command: sleep infinity                # Keep the container alive
     environment:
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
       - POSTGRES_URL=postgresql://dev:dev@postgres:5432/devdb
@@ -38,7 +42,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host side remapped to 5433 to avoid clashing with a baremetal PostgreSQL
+      # on 5432. Inside the dev container, code still connects via "postgres:5432"
+      # over the compose network — this mapping only affects host-side access.
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d devdb"]
       interval: 5s
@@ -57,7 +64,10 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
-      - "127.0.0.1:3306:3306"
+      # Host side remapped to 3307 to avoid clashing with a baremetal MariaDB on
+      # 3306. Inside the dev container, code still connects via "mysql:3306" over
+      # the compose network — this mapping only affects host-side access.
+      - "127.0.0.1:3307:3306"
     healthcheck:
       # Using MYSQL_PWD avoids the "password on command line is insecure" warning
       test: ["CMD-SHELL", "MYSQL_PWD=dev mysqladmin ping -h localhost -u dev"]
@@ -68,10 +78,7 @@ services:
   # ─── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    command:
-      - redis-server
-      - --requirepass
-      - dev
+    command: redis-server --requirepass dev
     restart: unless-stopped
     volumes:
       - redis_data:/data
@@ -104,6 +111,12 @@ services:
 # ─── Named volumes ─────────────────────────────────────────────────────────────
 # To wipe a database and start fresh, delete its volume:
 #   docker volume rm .devcontainer_postgres_data
+#
+# Database image tags are pinned to MAJOR versions on purpose — never use
+# `latest` for a stateful service. To bump a major version (e.g. postgres:17 ->
+# 18, mysql:8.4 -> 9.x), the existing data directory is usually NOT
+# forward-compatible: either start fresh by deleting that DB's volume (above),
+# or run the engine's documented upgrade path (e.g. pg_upgrade) before switching.
 volumes:
   postgres_data:
   mysql_data:

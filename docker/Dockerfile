@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 LABEL org.opencontainers.image.source=https://github.com/ajwadtahmid/dotfiles
 LABEL org.opencontainers.image.description="Universal dev environment"
@@ -144,10 +144,12 @@ RUN yes | sdkmanager --licenses && \
     sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
 # ─── Terraform ────────────────────────────────────────────────────────────────
+# HashiCorp's apt repo lags new Ubuntu releases, so pin the suite to "noble"
+# (24.04 LTS) instead of $(lsb_release -cs); its binaries run fine on newer bases.
 RUN wget -O- https://apt.releases.hashicorp.com/gpg | \
       gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null && \
     echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
-      https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+      https://apt.releases.hashicorp.com noble main" | \
       sudo tee /etc/apt/sources.list.d/hashicorp.list && \
     sudo apt-get update && sudo apt-get install -y terraform && \
     sudo rm -rf /var/lib/apt/lists/*

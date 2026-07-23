@@ -9,19 +9,20 @@
 #
 #   Two install modes (selected at runtime, or via --mode flag):
 #
-#     1) baremetal    Installs the full toolchain on the host machine
-#                     (sections 1-9). Optionally also sets up dev
-#                     containers (section 10).
-#
-#     2) devcontainer Installs only the base + Docker + dev container
+#     1) devcontainer Installs only the base + Docker + dev container
 #                     tooling (sections 1-6, 8, 9, 10). Does NOT install
 #                     native dev runtimes/languages/DBs (section 7) on
 #                     the host — all development happens inside containers.
+#                     This is the recommended default.
+#
+#     2) baremetal    Installs the full toolchain on the host machine
+#                     (sections 1-9). Optionally also sets up dev
+#                     containers (section 10).
 #
 #   Non-interactive examples:
+#     sudo bash install.sh --mode devcontainer
 #     sudo bash install.sh --mode baremetal
 #     sudo bash install.sh --mode baremetal --with-devcontainer
-#     sudo bash install.sh --mode devcontainer
 #
 #   Tested on: Fedora 43/44
 #
@@ -35,6 +36,10 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Absolute path to this script's directory, so we can install helper files that
+# ship alongside it (e.g. bin/devinit) regardless of the caller's cwd.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ################################################################################
 #                         CONFIGURATION SECTION
@@ -171,20 +176,20 @@ select_mode() {
     # If mode already supplied via flag, don't prompt for it.
     if [[ -z "$INSTALL_MODE" ]]; then
         print_section "SELECT INSTALL MODE"
-        echo "  1) Baremetal   - Full dev toolchain installed on this machine"
+        echo "  1) Devcontainer- Only base system + Docker + dev container tooling."
+        echo "                   No native dev tools on the host; you develop"
+        echo "                   entirely inside containers. (Recommended)"
+        echo ""
+        echo "  2) Baremetal   - Full dev toolchain installed on this machine"
         echo "                   (languages, runtimes, databases, Docker, etc.)"
         echo ""
-        echo "  2) Devcontainer- Only base system + Docker + dev container tooling."
-        echo "                   No native dev tools on the host; you develop"
-        echo "                   entirely inside containers."
-        echo ""
-        read -p "Enter choice [1-2]: " MODE_CHOICE
+        read -p "Enter choice [1-2, default 1]: " MODE_CHOICE
         case "$MODE_CHOICE" in
-            1) INSTALL_MODE="baremetal" ;;
-            2) INSTALL_MODE="devcontainer" ;;
+            1|"") INSTALL_MODE="devcontainer" ;;
+            2)    INSTALL_MODE="baremetal" ;;
             *)
-                print_warning "Invalid choice. Defaulting to baremetal."
-                INSTALL_MODE="baremetal"
+                print_warning "Invalid choice. Defaulting to devcontainer."
+                INSTALL_MODE="devcontainer"
                 ;;
         esac
     fi
@@ -280,11 +285,26 @@ section_build_tools() {
     sudo -Hu "$SUDO_USER" git lfs install
     print_success "Git LFS initialized"
 
+    # ── Modern CLI tools (best-effort) ────────────────────────────────────────
+    # Installed one at a time via soft() so a package that's unavailable on this
+    # Fedora release only skips itself instead of aborting the whole batch.
+    #   eza   → modern ls        bat      → cat with syntax highlighting
+    #   fd    → friendlier find  git-delta→ nicer git diffs
+    #   btop  → resource monitor lazygit  → git TUI
+    #   tealdeer (tldr) → concise man pages   starship → shell prompt
+    print_info "Installing modern CLI tools..."
+    MODERN_CLI=( eza bat fd-find git-delta btop lazygit tealdeer starship )
+    for tool in "${MODERN_CLI[@]}"; do
+        print_info "  → $tool"
+        soft "CLI tool: $tool" dnf install -y "$tool"
+    done
+
     # Shell integration for the CLI tools just installed (no-ops if a future
     # shell can't find the binary, thanks to the command -v guards).
-    print_info "Wiring zoxide and fzf into ~/.bashrc..."
+    print_info "Wiring zoxide, fzf and starship into ~/.bashrc..."
     append_bashrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"' '# zoxide (smarter cd)'
     append_bashrc 'command -v fzf >/dev/null 2>&1 && eval "$(fzf --bash)"' '# fzf (fuzzy finder)'
+    append_bashrc 'command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"' '# starship (prompt)'
 }
 
 ################################################################################
@@ -772,298 +792,39 @@ section_devcontainers() {
     print_info "Creating template directory at $TEMPLATE_DIR..."
     mkdir -p "$TEMPLATE_DIR"
 
-    # ── devcontainer.json ────────────────────────────────────────────────────
-    print_info "Writing devcontainer.json..."
-    cat > "$TEMPLATE_DIR/devcontainer.json" << 'DEVCONTAINER_JSON'
-{
-  "name": "Universal Dev Environment",
-
-  // Use docker-compose to start the dev container + all database services together
-  "dockerComposeFile": "docker-compose.yml",
-  "service": "app",
-  "workspaceFolder": "/workspace",
-
-  // NOTE: .ssh and .gitconfig mounts are defined in docker-compose.yml
-  // under the "app" service volumes. Do NOT duplicate them here — when VS Code
-  // uses dockerComposeFile mode it merges both, causing mount conflicts.
-  // If you switch to a single-container setup (no docker-compose), uncomment these:
-  // "mounts": [
-  //   "source=${localEnv:HOME}/.ssh,target=/home/dev/.ssh,type=bind,readonly",
-  //   "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,readonly"
-  // ],
-
-  "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
-  },
-
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        // General
-        "eamodio.gitlens",
-        "streetsidesoftware.code-spell-checker",
-        "EditorConfig.EditorConfig",
-
-        // Python
-        "ms-python.python",
-        "ms-python.vscode-pylance",
-        "charliermarsh.ruff",
-
-        // JS / TS
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "bradlc.vscode-tailwindcss",
-
-        // Rust
-        "rust-lang.rust-analyzer",
-        "tamasfe.even-better-toml",
-
-        // Go
-        "golang.go",
-
-        // Java / Kotlin
-        "redhat.java",
-        "vscjava.vscode-java-pack",
-        "fwcd.kotlin",
-
-        // Scala
-        "scala-lang.scala",
-        "scalameta.metals",
-
-        // Flutter / Dart
-        "Dart-Code.dart-code",
-        "Dart-Code.flutter",
-
-        // C / C++
-        "ms-vscode.cpptools",
-        "ms-vscode.cmake-tools",
-
-        // Docker / Infra
-        "ms-azuretools.vscode-docker",
-        "HashiCorp.terraform",
-        "redhat.ansible",
-
-        // Swift
-        "sswg.swift-lang",
-
-        // Ruby
-        "Shopify.ruby-lsp",
-
-        // PHP
-        "bmewburn.vscode-intelephense-client",
-
-        // Lua
-        "sumneko.lua",
-
-        // .NET / C#
-        "ms-dotnettools.csharp",
-        "ms-dotnettools.csdevkit"
-      ],
-      "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash",
-        "editor.formatOnSave": true,
-        "editor.rulers": [100],
-        "python.defaultInterpreterPath": "/home/dev/.pyenv/shims/python"
-      }
-    }
-  },
-
-  "remoteUser": "dev",
-
-  // Runs on the HOST before the container starts. Ensures ~/.gitconfig and
-  // ~/.ssh exist. Without this, Docker bind-mounts a non-existent path as an
-  // empty directory, breaking git inside the container.
-  "initializeCommand": "[ -f ~/.gitconfig ] || (mkdir -p ~/.ssh && touch ~/.gitconfig)",
-
-  "runArgs": ["--shm-size=2gb"],
-
-  // Ports forwarded from the container to the host.
-  // Database ports (5432, 3306, etc.) are on separate service containers —
-  // forwarding is handled by docker-compose "ports:" mappings.
-  "forwardPorts": [
-    3000,   // React / Next.js / Vue / Svelte
-    4000,   // Misc backend / Apollo GraphQL
-    4173,   // Vite preview
-    4200,   // Angular CLI
-    4321,   // Astro
-    5000,   // Flask / ASP.NET Core HTTP
-    5001,   // ASP.NET Core HTTPS
-    5173,   // Vite dev server
-    6006,   // Storybook
-    7000,   // ASP.NET .NET 6+ HTTP
-    8000,   // Django / FastAPI
-    8080,   // General HTTP / Spring Boot
-    8081,   // Metro bundler (React Native)
-    8888,   // Jupyter
-    9000,   // Play Framework (Scala)
-    9100,   // Flutter DevTools
-    9229,   // Node.js debugger
-    19000,  // Expo
-    19001,  // Expo DevTools
-    19002,  // Expo web
-    5432,   // PostgreSQL
-    3306,   // MySQL
-    6379,   // Redis
-    27017   // MongoDB
-  ],
-
-  "portsAttributes": {
-    "3000": { "label": "Frontend" },
-    "4173": { "label": "Vite Preview" },
-    "4200": { "label": "Angular" },
-    "4321": { "label": "Astro" },
-    "5000": { "label": "Flask / ASP.NET" },
-    "5001": { "label": "ASP.NET HTTPS" },
-    "5173": { "label": "Vite" },
-    "6006": { "label": "Storybook" },
-    "7000": { "label": "ASP.NET (.NET 6+)" },
-    "8000": { "label": "Backend" },
-    "8080": { "label": "HTTP / Spring Boot" },
-    "8081": { "label": "Metro (React Native)" },
-    "9000": { "label": "Play Framework" },
-    "9100": { "label": "Flutter DevTools" },
-    "9229": { "label": "Node Debugger" },
-    "19000": { "label": "Expo" },
-    "19001": { "label": "Expo DevTools" },
-    "19002": { "label": "Expo Web" },
-    "5432": { "label": "PostgreSQL" },
-    "3306": { "label": "MySQL" },
-    "6379": { "label": "Redis" },
-    "27017": { "label": "MongoDB" }
-  }
-}
-DEVCONTAINER_JSON
-    print_success "devcontainer.json written"
-
-    # ── docker-compose.yml ───────────────────────────────────────────────────
-    print_info "Writing docker-compose.yml..."
-    cat > "$TEMPLATE_DIR/docker-compose.yml" << 'DOCKER_COMPOSE_YML'
-# SECURITY WARNING: Credentials below are for LOCAL DEVELOPMENT ONLY.
-# Never use them in production, staging, or any network-exposed environment.
-services:
-
-  # ─── Dev container ──────────────────────────────────────────────────────────
-  app:
-    image: ghcr.io/ajwadtahmid/devenv:latest  # <-- replace with your username
-    volumes:
-      - ..:/workspace:cached               # Project root (one level up from .devcontainer/)
-      - ~/.ssh:/home/dev/.ssh:ro           # SSH keys for git over SSH
-      - ~/.gitconfig:/home/dev/.gitconfig:ro
-    command: sleep infinity                # Keep the container alive
-    environment:
-      - POSTGRES_URL=postgresql://dev:dev@postgres:5432/devdb
-      - MYSQL_URL=mysql://dev:dev@mysql:3306/devdb
-      - REDIS_URL=redis://redis:6379
-      - MONGO_URL=mongodb://dev:dev@mongo:27017/devdb
-      - SQLITE_PATH=/workspace/db.sqlite3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      mongo:
-        condition: service_healthy
-
-  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: dev
-      POSTGRES_PASSWORD: dev
-      POSTGRES_DB: devdb
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      # Host side remapped to 5433 to avoid clashing with a baremetal PostgreSQL
-      # on 5432. Inside the dev container, code still connects via "postgres:5432"
-      # over the compose network — this mapping only affects host-side access.
-      - "127.0.0.1:5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dev -d devdb"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # ─── MySQL ──────────────────────────────────────────────────────────────────
-  mysql:
-    image: mysql:8.4
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: rootdev
-      MYSQL_USER: dev
-      MYSQL_PASSWORD: dev
-      MYSQL_DATABASE: devdb
-    volumes:
-      - mysql_data:/var/lib/mysql
-    ports:
-      # Host side remapped to 3307 to avoid clashing with a baremetal MariaDB on
-      # 3306. Inside the dev container, code still connects via "mysql:3306" over
-      # the compose network — this mapping only affects host-side access.
-      - "127.0.0.1:3307:3306"
-    healthcheck:
-      # Using MYSQL_PWD avoids the "password on command line is insecure" warning
-      test: ["CMD-SHELL", "MYSQL_PWD=dev mysqladmin ping -h localhost -u dev"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # ─── Redis ──────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    command: redis-server --requirepass dev
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    ports:
-      - "127.0.0.1:6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # ─── MongoDB ────────────────────────────────────────────────────────────────
-  mongo:
-    image: mongo:8
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: dev
-      MONGO_INITDB_ROOT_PASSWORD: dev
-      MONGO_INITDB_DATABASE: devdb
-    volumes:
-      - mongo_data:/data/db
-    ports:
-      - "127.0.0.1:27017:27017"
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-# ─── Named volumes ─────────────────────────────────────────────────────────────
-# To wipe a database and start fresh, delete its volume:
-#   docker volume rm .devcontainer_postgres_data
-#
-# Database image tags are pinned to MAJOR versions on purpose — never use
-# `latest` for a stateful service. To bump a major version (e.g. postgres:17 ->
-# 18, mysql:8.4 -> 9.x), the existing data directory is usually NOT
-# forward-compatible: either start fresh by deleting that DB's volume (above),
-# or run the engine's documented upgrade path (e.g. pg_upgrade) before switching.
-volumes:
-  postgres_data:
-  mysql_data:
-  redis_data:
-  mongo_data:
-DOCKER_COMPOSE_YML
-    print_success "docker-compose.yml written"
+    # Deploy the dev container template from the repo's single source of truth
+    # (devcontainer-template/.devcontainer) instead of embedding copies here,
+    # so there is exactly one place to edit and no risk of the copies drifting.
+    SRC_TEMPLATE="$SCRIPT_DIR/devcontainer-template/.devcontainer"
+    if [[ -d "$SRC_TEMPLATE" ]]; then
+        print_info "Copying dev container template from repo source..."
+        cp -r "$SRC_TEMPLATE/." "$TEMPLATE_DIR/"
+        print_success "Template files copied from $SRC_TEMPLATE"
+    else
+        WARNINGS+=("dev container template source not found ($SRC_TEMPLATE)")
+        print_warning "Template source not found at $SRC_TEMPLATE — skipping template copy"
+    fi
 
     chown -R "$SUDO_USER:$SUDO_USER" "/home/$SUDO_USER/.dotfiles"
     print_success "Ownership set for ~/.dotfiles"
 
-    print_info "To use: cp -r ~/.dotfiles/devcontainer-template/.devcontainer /your/project/"
+    # ── Install the 'devinit' helper to ~/.local/bin ──────────────────────────
+    # Ships next to this script at bin/devinit. Lets you scaffold .devcontainer/
+    # into any project with a single command instead of copying by hand.
+    print_info "Installing 'devinit' helper to ~/.local/bin..."
+    USER_LOCAL_BIN="$USER_HOME/.local/bin"
+    install -d -o "$SUDO_USER" -g "$SUDO_USER" "$USER_LOCAL_BIN"
+    if [[ -f "$SCRIPT_DIR/bin/devinit" ]]; then
+        install -m 0755 -o "$SUDO_USER" -g "$SUDO_USER" \
+            "$SCRIPT_DIR/bin/devinit" "$USER_LOCAL_BIN/devinit"
+        print_success "'devinit' installed to $USER_LOCAL_BIN/devinit"
+    else
+        WARNINGS+=("devinit helper (bin/devinit not found next to install.sh)")
+        print_warning "bin/devinit not found at $SCRIPT_DIR/bin — skipping devinit install"
+    fi
+    append_bashrc 'export PATH="$HOME/.local/bin:$PATH"' '# ~/.local/bin on PATH'
+
+    print_info "Scaffold a project: cd into it and run 'devinit'"
     print_info "Then reopen the project in a container from your editor (Zed or VS Code)"
 }
 
