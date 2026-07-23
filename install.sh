@@ -290,21 +290,27 @@ section_build_tools() {
     # Fedora release only skips itself instead of aborting the whole batch.
     #   eza   → modern ls        bat      → cat with syntax highlighting
     #   fd    → friendlier find  git-delta→ nicer git diffs
-    #   btop  → resource monitor lazygit  → git TUI
-    #   tealdeer (tldr) → concise man pages   starship → shell prompt
+    #   btop  → resource monitor tealdeer (tldr) → concise man pages
     print_info "Installing modern CLI tools..."
-    MODERN_CLI=( eza bat fd-find git-delta btop lazygit tealdeer starship )
+    MODERN_CLI=( eza bat fd-find git-delta btop tealdeer )
     for tool in "${MODERN_CLI[@]}"; do
         print_info "  → $tool"
         soft "CLI tool: $tool" dnf install -y "$tool"
     done
 
+    # lazygit (git TUI) is not in Fedora's base repos — install it from the
+    # dejan/lazygit COPR. 'dnf copr' is provided by dnf5-plugins (Section 1).
+    # (starship is handled in Section 5, alongside the other shell tools.)
+    print_info "Installing lazygit (COPR dejan/lazygit)..."
+    if soft "enable COPR dejan/lazygit" dnf copr enable -y dejan/lazygit; then
+        soft "CLI tool: lazygit" dnf install -y lazygit
+    fi
+
     # Shell integration for the CLI tools just installed (no-ops if a future
     # shell can't find the binary, thanks to the command -v guards).
-    print_info "Wiring zoxide, fzf and starship into ~/.bashrc..."
+    print_info "Wiring zoxide and fzf into ~/.bashrc..."
     append_bashrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"' '# zoxide (smarter cd)'
     append_bashrc 'command -v fzf >/dev/null 2>&1 && eval "$(fzf --bash)"' '# fzf (fuzzy finder)'
-    append_bashrc 'command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"' '# starship (prompt)'
 }
 
 ################################################################################
@@ -391,10 +397,12 @@ section_mullvad_vpn() {
 }
 
 ################################################################################
-#              SECTION 5: ZED EDITOR & ATUIN
+#              SECTION 5: ZED EDITOR, ATUIN & STARSHIP
 #
-#   Zed is a minimal code editor crafted for speed.
-#   Install from official Zed repository for security and automatic updates.
+#   Zed      — a minimal, fast code editor (official installer).
+#   Atuin    — shell history manager (official installer).
+#   Starship — cross-shell prompt (official installer, https://starship.rs).
+#              Its icons/glyphs need a Nerd Font, so we install one first.
 ################################################################################
 
 section_zed_atuin() {
@@ -420,6 +428,37 @@ section_zed_atuin() {
     # add it here. If it ever stops doing that, uncomment the line below and
     # re-run the script:
     # append_bashrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init bash)"' '# atuin (shell history)'
+
+    print_section "STARSHIP PROMPT"
+
+    # Starship's icons/glyphs require a Nerd Font. Install one system-wide
+    # (JetBrains Mono Nerd Font) if none is present yet, so the prompt renders right.
+    if command -v fc-list >/dev/null 2>&1 && fc-list | grep -qi "Nerd Font"; then
+        print_info "A Nerd Font is already installed — skipping font install"
+    else
+        print_info "Installing JetBrains Mono Nerd Font (prerequisite for starship glyphs)..."
+        NERD_TMP=$(mktemp -d)
+        if soft "JetBrains Mono Nerd Font download" curl -fsSL -o "$NERD_TMP/JetBrainsMono.zip" \
+                https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip; then
+            install -d /usr/share/fonts/nerd-fonts
+            unzip -oq "$NERD_TMP/JetBrainsMono.zip" -d /usr/share/fonts/nerd-fonts
+            fc-cache -f >/dev/null 2>&1 || true
+            print_success "JetBrains Mono Nerd Font installed"
+        fi
+        rm -rf "$NERD_TMP"
+    fi
+
+    # Install starship via its official installer (https://starship.rs/guide/).
+    # Installs to /usr/local/bin so it's on PATH for every user.
+    if command -v starship >/dev/null 2>&1; then
+        print_info "Starship already installed — skipping"
+    else
+        print_info "Installing starship prompt..."
+        soft "starship" bash -c 'curl -fsSL https://starship.rs/install.sh | sh -s -- --yes'
+    fi
+
+    # Wire starship into the user's bash prompt (guarded no-op if absent).
+    append_bashrc 'command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"' '# starship (prompt)'
 }
 
 ################################################################################
