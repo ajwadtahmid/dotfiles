@@ -9,15 +9,15 @@
 #
 #   Two install modes (selected at runtime, or via --mode flag):
 #
-#     1) devcontainer Installs only the base + Docker + dev container
-#                     tooling (sections 1-6, 8, 9, 10). Does NOT install
-#                     native dev runtimes/languages/DBs (section 7) on
-#                     the host — all development happens inside containers.
-#                     This is the recommended default.
+#     1) devcontainer Base system + shell + apps + Docker + ESSENTIAL dev
+#                     tools (Python, Node, Flutter) + dev container template
+#                     (sections 1-7, 9-12). Skips the OPTIONAL native toolchain
+#                     (section 8: extra languages + local databases) — those
+#                     live inside containers. This is the recommended default.
 #
-#     2) baremetal    Installs the full toolchain on the host machine
-#                     (sections 1-9). Optionally also sets up dev
-#                     containers (section 10).
+#     2) baremetal    Everything above PLUS the optional native dev toolchain
+#                     (Go, Rust, Java/Gradle, Expo, PostgreSQL, MariaDB) on the
+#                     host (section 8). Optionally also scaffolds dev containers.
 #
 #   Optional --shell flag selects the default shell to set up:
 #     --shell zsh    oh-my-zsh + powerlevel10k, set as the login shell
@@ -125,6 +125,17 @@ append_zshrc() {
     print_success "Added to ~/.zshrc: ${comment:-$line}"
 }
 
+# Append a shell-agnostic env/PATH line to the login shell(s) the user actually
+# uses: always bash, plus zsh when zsh was selected. Use this for PATH/exports
+# (which work in both shells) — NOT for shell-specific inits like
+# `zoxide init bash` vs `zoxide init zsh`. Idempotent per file.
+append_login_rc() {
+    local line="$1" comment="${2:-}"
+    append_bashrc "$line" "$comment"
+    [[ "$SHELL_CHOICE" == "zsh" ]] && append_zshrc "$line" "$comment"
+    return 0
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "This script must be run with sudo (e.g. 'sudo bash install.sh')"
@@ -147,8 +158,8 @@ check_root() {
 #                         INSTALL MODE SELECTION
 #
 #   Two modes:
-#     baremetal    -> sections 1-9 (full host toolchain), optional section 10
-#     devcontainer -> sections 1-6, 8, 9, 10 (no native dev tools on host)
+#     baremetal    -> all sections, incl. optional dev tools (§8) + optional §11
+#     devcontainer -> everything except the optional dev tools in §8
 #
 #   Mode and options can be set via flags (--mode, --with-devcontainer) or
 #   chosen interactively when not supplied.
@@ -156,7 +167,7 @@ check_root() {
 
 # Defaults (may be overridden by flags or the interactive prompt)
 INSTALL_MODE=""          # "baremetal" or "devcontainer"
-WITH_DEVCONTAINER=false  # baremetal-only: also run section 10
+WITH_DEVCONTAINER=false  # baremetal-only: also run section 11
 SHELL_CHOICE=""          # "zsh" or "bash" (default shell to set up)
 ZED_SETTINGS_NEEDS_MANUAL=false  # set true when a Zed settings.json already exists
 
@@ -227,12 +238,13 @@ select_mode() {
     # If mode already supplied via flag, don't prompt for it.
     if [[ -z "$INSTALL_MODE" ]]; then
         print_section "SELECT INSTALL MODE"
-        echo "  1) Devcontainer- Only base system + Docker + dev container tooling."
-        echo "                   No native dev tools on the host; you develop"
-        echo "                   entirely inside containers. (Recommended)"
+        echo "  1) Devcontainer- Base system + shell + apps + Docker + essential"
+        echo "                   dev tools (Python/Node/Flutter) + dev container"
+        echo "                   template. Optional languages/DBs live in"
+        echo "                   containers, not on the host. (Recommended)"
         echo ""
-        echo "  2) Baremetal   - Full dev toolchain installed on this machine"
-        echo "                   (languages, runtimes, databases, Docker, etc.)"
+        echo "  2) Baremetal   - Everything above PLUS the optional dev toolchain"
+        echo "                   (Go, Rust, Java, Expo, local databases) on host."
         echo ""
         read -p "Enter choice [1-2, default 1]: " MODE_CHOICE
         case "$MODE_CHOICE" in
@@ -245,7 +257,7 @@ select_mode() {
         esac
     fi
 
-    # For baremetal, optionally also set up dev containers (section 10).
+    # For baremetal, optionally also set up dev containers (section 11).
     if [[ "$INSTALL_MODE" == "baremetal" && "$WITH_DEVCONTAINER" == "false" ]]; then
         read -p "Also set up dev containers (devcontainer CLI + template)? [y/N]: " DC_CHOICE
         case "$DC_CHOICE" in
@@ -272,7 +284,7 @@ section_system_updates() {
     print_success "System updated"
 
     # dnf5-plugins provides `dnf config-manager`, used later to add the Mullvad
-    # (Section 4) and Docker (Section 8) repositories. Not always present on a
+    # (Section 6) and Docker (Section 9) repositories. Not always present on a
     # fresh/minimal Fedora install, so ensure it here before anything needs it.
     print_info "Installing dnf5-plugins (provides 'dnf config-manager')..."
     dnf install -y dnf5-plugins
@@ -285,13 +297,17 @@ section_system_updates() {
 }
 
 ################################################################################
-#               SECTION 2: ESSENTIAL SOFTWARE
+#               SECTION 2: CORE SOFTWARE
+#
+#   Build/CLI toolchain plus the desktop essentials this personal machine is
+#   built around (steam, mangohud, goverlay, etc.). Shell integration for the
+#   CLI tools installed here is wired up later in Section 5 (Shell Setup).
 ################################################################################
 
-section_build_tools() {
-    print_section "ESSENTIAL SOFTWARE"
+section_core_software() {
+    print_section "CORE SOFTWARE"
 
-    print_info "Installing essential software..."
+    print_info "Installing core software..."
     dnf install -y \
         gcc \
         gcc-c++ \
@@ -355,12 +371,6 @@ section_build_tools() {
     if soft "enable COPR dejan/lazygit" dnf copr enable -y dejan/lazygit; then
         soft "CLI tool: lazygit" dnf install -y lazygit
     fi
-
-    # Shell integration for the CLI tools just installed (no-ops if a future
-    # shell can't find the binary, thanks to the command -v guards).
-    print_info "Wiring zoxide and fzf into ~/.bashrc..."
-    append_bashrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"' '# zoxide (smarter cd)'
-    append_bashrc 'command -v fzf >/dev/null 2>&1 && eval "$(fzf --bash)"' '# fzf (fuzzy finder)'
 }
 
 ################################################################################
@@ -427,30 +437,271 @@ section_flatpak() {
 #     flatpak install flathub com.visualstudio.code
 
 ################################################################################
-#              SECTION 4: MULLVAD VPN
+#              SECTION 4: GIT CONFIGURATION
 #
-#   Mullvad is an open-source, privacy-focused VPN provider.
-#   Install from official Mullvad repository for security and automatic updates.
+#   Git is configured with the username and email set at the top of the script.
 ################################################################################
 
-section_mullvad_vpn() {
-    print_section "MULLVAD VPN"
+section_git_config() {
+    print_section "GIT CONFIGURATION"
 
-    print_info "Adding Mullvad repository..."
-    dnf config-manager addrepo --from-repofile=https://repository.mullvad.net/rpm/stable/mullvad.repo --overwrite
-    print_success "Mullvad repository added"
+    print_info "Configuring Git..."
+    sudo -Hu "$SUDO_USER" git config --global user.name "$GIT_USERNAME"
+    sudo -Hu "$SUDO_USER" git config --global user.email "$GIT_EMAIL"
+    sudo -Hu "$SUDO_USER" git config --global pull.rebase false
+    sudo -Hu "$SUDO_USER" git config --global init.defaultBranch main
+    print_success "Git configured"
 
-    print_info "Installing Mullvad VPN..."
-    soft "Mullvad VPN" dnf install -y mullvad-vpn
+    print_info "Git configuration:"
+    sudo -Hu "$SUDO_USER" git config --global --list | grep -E "user\.|pull\.|init\."
 
-    print_info "Official site: https://mullvad.net"
+    print_info "To update Git config later, run:"
+    echo "  git config --global user.name 'Your Name'"
+    echo "  git config --global user.email 'your.email@example.com'"
 }
 
 ################################################################################
-#              SECTION 5: ZED EDITOR & ATUIN
+#              SECTION 5: SHELL SETUP
 #
-#   Zed is a minimal code editor crafted for speed.
-#   Install from official Zed repository for security and automatic updates.
+#   The single home for everything that writes to ~/.bashrc / ~/.zshrc:
+#     - JetBrains Mono Nerd Font + Konsole default font
+#     - ~/.local/bin on PATH, zoxide + fzf + atuin hooks
+#     - bash  -> oh-my-posh prompt (agnosterplus theme)
+#     - zsh   -> oh-my-zsh + powerlevel10k + autosuggestions/syntax-highlighting,
+#                then set as the login shell
+#
+#   Atuin is installed here too, right next to its hooks. The user chose bash or
+#   zsh at the start; bash stays the default unless zsh was selected.
+################################################################################
+
+# Install the JetBrains Mono Nerd Font system-wide (needed for the p10k /
+# oh-my-posh glyphs) unless a Nerd Font is already present. Idempotent.
+install_nerd_font() {
+    if command -v fc-list >/dev/null 2>&1 && fc-list | grep -qi "Nerd Font"; then
+        print_info "A Nerd Font is already installed — skipping font install"
+        return 0
+    fi
+    print_info "Installing JetBrains Mono Nerd Font..."
+    local tmp; tmp=$(mktemp -d)
+    if soft "JetBrains Mono Nerd Font download" curl -fsSL -o "$tmp/JetBrainsMono.zip" \
+            https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip; then
+        install -d /usr/share/fonts/nerd-fonts
+        unzip -oq "$tmp/JetBrainsMono.zip" -d /usr/share/fonts/nerd-fonts
+        fc-cache -f >/dev/null 2>&1 || true
+        print_success "JetBrains Mono Nerd Font installed"
+    fi
+    rm -rf "$tmp"
+}
+
+# Set Konsole's default font to JetBrainsMono Nerd Font. Uses kwriteconfig,
+# which just edits config files (no live KDE session needed), so it's safe to
+# run from the installer and re-run any time. Updates the existing default
+# profile so other Konsole customizations are preserved; creates one only if
+# there is no default profile yet. No-op if the KDE tools aren't installed.
+configure_konsole_font() {
+    local kwrite kread
+    kwrite=$(command -v kwriteconfig6 2>/dev/null || command -v kwriteconfig5 2>/dev/null || true)
+    kread=$(command -v kreadconfig6 2>/dev/null  || command -v kreadconfig5 2>/dev/null  || true)
+    if [[ -z "$kwrite" ]]; then
+        print_info "kwriteconfig (KDE) not found — skipping Konsole font setup."
+        return 0
+    fi
+
+    local font="JetBrainsMono Nerd Font,12,-1,5,50,0,0,0,0,0"
+    local kdir="$USER_HOME/.local/share/konsole"
+    install -d -o "$SUDO_USER" -g "$SUDO_USER" "$kdir"
+
+    # Reuse the current default profile if there is one; otherwise create one.
+    local default_profile="" profile_file
+    [[ -n "$kread" ]] && default_profile=$(sudo -Hu "$SUDO_USER" "$kread" \
+        --file konsolerc --group "Desktop Entry" --key DefaultProfile 2>/dev/null || true)
+
+    if [[ -n "$default_profile" && -f "$kdir/$default_profile" ]]; then
+        profile_file="$kdir/$default_profile"
+        print_info "Updating Konsole font in existing profile: $default_profile"
+    else
+        profile_file="$kdir/Dotfiles.profile"
+        sudo -Hu "$SUDO_USER" "$kwrite" --file "$profile_file" --group General --key Name "Dotfiles" || true
+        sudo -Hu "$SUDO_USER" "$kwrite" --file konsolerc --group "Desktop Entry" --key DefaultProfile "Dotfiles.profile" || true
+        print_info "Created Konsole profile 'Dotfiles' and set it as default"
+    fi
+
+    soft "Konsole font (kwriteconfig)" sudo -Hu "$SUDO_USER" "$kwrite" \
+        --file "$profile_file" --group Appearance --key Font "$font"
+    print_success "Konsole default font set to JetBrainsMono Nerd Font (restart Konsole to apply)"
+}
+
+# Atuin (shell history). Installed here so its install and shell hooks live in
+# one section. Its own installer wires the bash hook into ~/.bashrc; the zsh
+# hook is added in section_shell_setup's zsh branch.
+install_atuin() {
+    print_section "ATUIN SHELL HISTORY MANAGER"
+
+    if sudo -Hu "$SUDO_USER" bash -c 'command -v atuin >/dev/null 2>&1 || [ -x "$HOME/.local/bin/atuin" ] || [ -x "$HOME/.atuin/bin/atuin" ]'; then
+        print_info "Atuin already installed — skipping"
+    else
+        print_info "Installing Atuin shell history manager (non-interactive)..."
+        soft "Atuin" sudo -Hu "$SUDO_USER" bash -c 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive'
+    fi
+
+    # Atuin's own installer wires the bash hook into ~/.bashrc, so we don't add
+    # it here. If it ever stops doing that, uncomment the line below and re-run:
+    # append_bashrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init bash)"' '# atuin (shell history)'
+}
+
+# bash path: install the oh-my-posh prompt and wire it into ~/.bashrc.
+section_bash_setup() {
+    print_section "BASH PROMPT (oh-my-posh)"
+
+    if sudo -Hu "$SUDO_USER" bash -c 'command -v oh-my-posh >/dev/null 2>&1 || [ -x "$HOME/.local/bin/oh-my-posh" ]'; then
+        print_info "oh-my-posh already installed — skipping"
+    else
+        print_info "Installing oh-my-posh..."
+        soft "oh-my-posh" sudo -Hu "$SUDO_USER" bash -c 'curl -s https://ohmyposh.dev/install.sh | bash -s'
+    fi
+
+    # oh-my-posh installs to ~/.local/bin and drops its themes in
+    # ~/.cache/oh-my-posh/themes. Init it with the agnosterplus theme.
+    append_bashrc 'command -v oh-my-posh >/dev/null 2>&1 && eval "$(oh-my-posh init bash --config $HOME/.cache/oh-my-posh/themes/agnosterplus.omp.json)"' '# oh-my-posh (prompt, agnosterplus theme)'
+
+    print_success "oh-my-posh configured for bash (agnosterplus theme)"
+    print_info "JetBrains Mono Nerd Font is installed — select it in your terminal so glyphs render."
+}
+
+section_shell_setup() {
+    print_section "SHELL SETUP"
+
+    # JetBrains Mono Nerd Font is installed for BOTH shells so the prompt
+    # (powerlevel10k or oh-my-posh) always has its glyphs available, and set as
+    # Konsole's default font so those glyphs actually render.
+    install_nerd_font
+    configure_konsole_font
+
+    # Atuin: install now (bash hook wired by its own installer; zsh hook below).
+    install_atuin
+
+    # All bash rc-wiring lives here so there's one place that owns it. Added for
+    # both shell choices so bash stays fully usable even when zsh is the default;
+    # zsh gets its own inits further down. The zoxide/fzf PACKAGES are installed
+    # in Section 2 (Core Software) — these are just their shell hooks.
+    print_info "Wiring ~/.local/bin, zoxide and fzf into ~/.bashrc..."
+    append_bashrc 'export PATH="$HOME/.local/bin:$PATH"' '# ~/.local/bin on PATH'
+    append_bashrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"' '# zoxide (smarter cd)'
+    append_bashrc 'command -v fzf >/dev/null 2>&1 && eval "$(fzf --bash)"' '# fzf (fuzzy finder)'
+
+    if [[ "$SHELL_CHOICE" != "zsh" ]]; then
+        section_bash_setup
+        return 0
+    fi
+
+    print_section "ZSH + OH-MY-ZSH + POWERLEVEL10K"
+
+    # zsh itself is installed in Section 2. Bail out gracefully if it's missing.
+    if ! command -v zsh >/dev/null 2>&1; then
+        WARNINGS+=("zsh setup (zsh binary not found)")
+        print_warning "zsh is not installed — skipping zsh setup"
+        return 0
+    fi
+
+    local ZDOTDIR_OMZ="$USER_HOME/.oh-my-zsh"
+    local ZSH_CUSTOM="$ZDOTDIR_OMZ/custom"
+
+    # ── oh-my-zsh (unattended: no chsh, no shell launch, writes a fresh .zshrc) ─
+    if [[ -d "$ZDOTDIR_OMZ" ]]; then
+        print_info "oh-my-zsh already installed — skipping installer"
+    else
+        print_info "Installing oh-my-zsh..."
+        soft "oh-my-zsh" sudo -Hu "$SUDO_USER" bash -c \
+            'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+    fi
+
+    # ── powerlevel10k theme ───────────────────────────────────────────────────
+    if [[ -d "$ZSH_CUSTOM/themes/powerlevel10k" ]]; then
+        print_info "powerlevel10k already present — skipping clone"
+    else
+        print_info "Installing powerlevel10k theme..."
+        soft "powerlevel10k" sudo -Hu "$SUDO_USER" git clone --depth=1 \
+            https://github.com/romkatv/powerlevel10k.git "$ZSH_CUSTOM/themes/powerlevel10k"
+    fi
+
+    # ── Autocomplete + syntax highlighting plugins ────────────────────────────
+    if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]]; then
+        soft "zsh-autosuggestions" sudo -Hu "$SUDO_USER" git clone --depth=1 \
+            https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
+    fi
+    if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
+        soft "zsh-syntax-highlighting" sudo -Hu "$SUDO_USER" git clone --depth=1 \
+            https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
+    fi
+
+    # ── Point .zshrc at powerlevel10k and enable the plugins ──────────────────
+    # (syntax-highlighting must load last per its docs; fzf is a built-in
+    #  oh-my-zsh plugin. zoxide is NOT — it's init'd explicitly below.)
+    local ZSHRC="$USER_HOME/.zshrc"
+    if [[ -f "$ZSHRC" ]]; then
+        sudo -Hu "$SUDO_USER" sed -i \
+            's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$ZSHRC"
+        sudo -Hu "$SUDO_USER" sed -i \
+            's|^plugins=.*|plugins=(git fzf zsh-autosuggestions zsh-syntax-highlighting)|' "$ZSHRC"
+        print_success "Configured ~/.zshrc (theme + plugins)"
+    else
+        print_warning "~/.zshrc not found — oh-my-zsh install may have failed"
+    fi
+
+    # zsh doesn't add ~/.local/bin to PATH by default; do it before the
+    # zoxide/atuin inits below, which look up those binaries.
+    append_zshrc 'export PATH="$HOME/.local/bin:$PATH"' '# ~/.local/bin on PATH'
+
+    # zoxide is not an oh-my-zsh plugin, so init it explicitly; fzf is (enabled
+    # in the plugins list above) and needs no extra init.
+    append_zshrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"' '# zoxide (smarter cd)'
+
+    # Atuin for zsh (its installer targets bash; add the zsh hook too).
+    append_zshrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init zsh)"' '# atuin (shell history)'
+
+    # ── Make zsh the default login shell for the user ─────────────────────────
+    local zsh_path current_shell
+    zsh_path="$(command -v zsh || true)"
+    print_info "Setting zsh as the default shell for '$SUDO_USER'..."
+    if [[ -z "$zsh_path" ]]; then
+        WARNINGS+=("set zsh as default shell (zsh not found)")
+        print_warning "zsh binary not found — cannot set it as the default shell."
+    else
+        # Register zsh in /etc/shells (chsh and some tools require it).
+        if ! grep -qxF "$zsh_path" /etc/shells 2>/dev/null; then
+            echo "$zsh_path" >> /etc/shells
+            print_info "Registered $zsh_path in /etc/shells"
+        fi
+        # Set the login shell in /etc/passwd. usermod (root, no PAM prompt) is
+        # primary; fall back to chsh. '|| true' so set -e can't abort here.
+        usermod -s "$zsh_path" "$SUDO_USER" 2>/dev/null \
+            || chsh -s "$zsh_path" "$SUDO_USER" 2>/dev/null || true
+
+        # Read back the source of truth from /etc/passwd and report it plainly.
+        # Match on basename so /usr/bin/zsh vs /usr/sbin/zsh (same binary on
+        # merged-/usr systems) both count as success.
+        current_shell="$(getent passwd "$SUDO_USER" | cut -d: -f7)"
+        if [[ "$(basename "$current_shell")" == "zsh" ]]; then
+            print_success "Login shell for '$SUDO_USER' in /etc/passwd is now: $current_shell"
+            print_warning "IMPORTANT: fully LOG OUT and back in (or reboot) for this to apply."
+            print_warning "A new terminal tab in your CURRENT session may still start bash;"
+            print_warning "verify with:  getent passwd $SUDO_USER   (7th field should end in /zsh)"
+        else
+            WARNINGS+=("set zsh as default shell (still '$current_shell')")
+            print_warning "Login shell is still '$current_shell'. Set it manually with:"
+            print_warning "    sudo chsh -s $zsh_path $SUDO_USER"
+        fi
+    fi
+
+    print_success "zsh setup complete."
+    print_info "On first launch, powerlevel10k runs its config wizard (or run 'p10k configure')."
+}
+
+################################################################################
+#              SECTION 6: APPLICATIONS (ZED EDITOR + MULLVAD VPN)
+#
+#   Zed     — a fast, minimal code editor (official installer).
+#   Mullvad — an open-source, privacy-focused VPN (official RPM repository).
 ################################################################################
 
 # The desired Zed settings.json content, emitted to stdout. Kept in one place
@@ -517,7 +768,7 @@ apply_zed_settings() {
     print_success "Wrote Zed settings to $zed_file"
 }
 
-section_zed_atuin() {
+section_apps() {
     print_section "ZED EDITOR"
 
     if sudo -Hu "$SUDO_USER" bash -c 'command -v zed >/dev/null 2>&1 || [ -x "$HOME/.local/bin/zed" ]'; then
@@ -529,262 +780,29 @@ section_zed_atuin() {
 
     apply_zed_settings
 
-    print_section "ATUIN SHELL HISTORY MANAGER"
+    print_section "MULLVAD VPN"
 
-    if sudo -Hu "$SUDO_USER" bash -c 'command -v atuin >/dev/null 2>&1 || [ -x "$HOME/.local/bin/atuin" ] || [ -x "$HOME/.atuin/bin/atuin" ]'; then
-        print_info "Atuin already installed — skipping"
-    else
-        print_info "Installing Atuin shell history manager (non-interactive)..."
-        soft "Atuin" sudo -Hu "$SUDO_USER" bash -c 'curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive'
-    fi
+    print_info "Adding Mullvad repository..."
+    dnf config-manager addrepo --from-repofile=https://repository.mullvad.net/rpm/stable/mullvad.repo --overwrite
+    print_success "Mullvad repository added"
 
-    # Atuin's own installer wires shell integration into ~/.bashrc, so we don't
-    # add it here. If it ever stops doing that, uncomment the line below and
-    # re-run the script:
-    # append_bashrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init bash)"' '# atuin (shell history)'
+    print_info "Installing Mullvad VPN..."
+    soft "Mullvad VPN" dnf install -y mullvad-vpn
+
+    print_info "Official site: https://mullvad.net"
 }
 
 ################################################################################
-#              SECTION 6: GIT CONFIGURATION
+#              SECTION 7: ESSENTIAL DEV TOOLS   (installed in BOTH modes)
 #
-#   Git is configured with the username and email set at the top of the script.
+#   Host-level runtimes wanted regardless of containerization:
+#     - Python 3 + pip
+#     - Node LTS (via NVM) + npm
+#     - Flutter + Dart  (kept host-side as a fallback if devcontainers fail)
 ################################################################################
 
-section_git_config() {
-    print_section "GIT CONFIGURATION"
-
-    print_info "Configuring Git..."
-    sudo -Hu "$SUDO_USER" git config --global user.name "$GIT_USERNAME"
-    sudo -Hu "$SUDO_USER" git config --global user.email "$GIT_EMAIL"
-    sudo -Hu "$SUDO_USER" git config --global pull.rebase false
-    sudo -Hu "$SUDO_USER" git config --global init.defaultBranch main
-    print_success "Git configured"
-
-    print_info "Git configuration:"
-    sudo -Hu "$SUDO_USER" git config --global --list | grep -E "user\.|pull\.|init\."
-
-    print_info "To update Git config later, run:"
-    echo "  git config --global user.name 'Your Name'"
-    echo "  git config --global user.email 'your.email@example.com'"
-}
-
-################################################################################
-#              SECTION 6.5: SHELL SETUP (zsh + oh-my-zsh + powerlevel10k)
-#
-#   Runs only when the user chose zsh at the start. Sets up:
-#     - oh-my-zsh (unattended; does not launch zsh or chsh on its own)
-#     - powerlevel10k theme (needs a Nerd Font, installed here)
-#     - zsh-autosuggestions + zsh-syntax-highlighting (autocomplete + colors)
-#     - fzf + zoxide + atuin integration, then sets zsh as the login shell
-#
-#   If the user chose bash, it stays the default and gets the oh-my-posh prompt.
-################################################################################
-
-# Install the JetBrains Mono Nerd Font system-wide (needed for the p10k /
-# oh-my-posh glyphs) unless a Nerd Font is already present. Idempotent.
-install_nerd_font() {
-    if command -v fc-list >/dev/null 2>&1 && fc-list | grep -qi "Nerd Font"; then
-        print_info "A Nerd Font is already installed — skipping font install"
-        return 0
-    fi
-    print_info "Installing JetBrains Mono Nerd Font..."
-    local tmp; tmp=$(mktemp -d)
-    if soft "JetBrains Mono Nerd Font download" curl -fsSL -o "$tmp/JetBrainsMono.zip" \
-            https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip; then
-        install -d /usr/share/fonts/nerd-fonts
-        unzip -oq "$tmp/JetBrainsMono.zip" -d /usr/share/fonts/nerd-fonts
-        fc-cache -f >/dev/null 2>&1 || true
-        print_success "JetBrains Mono Nerd Font installed"
-    fi
-    rm -rf "$tmp"
-}
-
-# Set Konsole's default font to JetBrainsMono Nerd Font. Uses kwriteconfig,
-# which just edits config files (no live KDE session needed), so it's safe to
-# run from the installer and re-run any time. Updates the existing default
-# profile so other Konsole customizations are preserved; creates one only if
-# there is no default profile yet. No-op if the KDE tools aren't installed.
-configure_konsole_font() {
-    local kwrite kread
-    kwrite=$(command -v kwriteconfig6 2>/dev/null || command -v kwriteconfig5 2>/dev/null || true)
-    kread=$(command -v kreadconfig6 2>/dev/null  || command -v kreadconfig5 2>/dev/null  || true)
-    if [[ -z "$kwrite" ]]; then
-        print_info "kwriteconfig (KDE) not found — skipping Konsole font setup."
-        return 0
-    fi
-
-    local font="JetBrainsMono Nerd Font,12,-1,5,50,0,0,0,0,0"
-    local kdir="$USER_HOME/.local/share/konsole"
-    install -d -o "$SUDO_USER" -g "$SUDO_USER" "$kdir"
-
-    # Reuse the current default profile if there is one; otherwise create one.
-    local default_profile="" profile_file
-    [[ -n "$kread" ]] && default_profile=$(sudo -Hu "$SUDO_USER" "$kread" \
-        --file konsolerc --group "Desktop Entry" --key DefaultProfile 2>/dev/null || true)
-
-    if [[ -n "$default_profile" && -f "$kdir/$default_profile" ]]; then
-        profile_file="$kdir/$default_profile"
-        print_info "Updating Konsole font in existing profile: $default_profile"
-    else
-        profile_file="$kdir/Dotfiles.profile"
-        sudo -Hu "$SUDO_USER" "$kwrite" --file "$profile_file" --group General --key Name "Dotfiles" || true
-        sudo -Hu "$SUDO_USER" "$kwrite" --file konsolerc --group "Desktop Entry" --key DefaultProfile "Dotfiles.profile" || true
-        print_info "Created Konsole profile 'Dotfiles' and set it as default"
-    fi
-
-    soft "Konsole font (kwriteconfig)" sudo -Hu "$SUDO_USER" "$kwrite" \
-        --file "$profile_file" --group Appearance --key Font "$font"
-    print_success "Konsole default font set to JetBrainsMono Nerd Font (restart Konsole to apply)"
-}
-
-# bash path: install the oh-my-posh prompt and wire it into ~/.bashrc.
-section_bash_setup() {
-    print_section "BASH PROMPT (oh-my-posh)"
-
-    if sudo -Hu "$SUDO_USER" bash -c 'command -v oh-my-posh >/dev/null 2>&1 || [ -x "$HOME/.local/bin/oh-my-posh" ]'; then
-        print_info "oh-my-posh already installed — skipping"
-    else
-        print_info "Installing oh-my-posh..."
-        soft "oh-my-posh" sudo -Hu "$SUDO_USER" bash -c 'curl -s https://ohmyposh.dev/install.sh | bash -s'
-    fi
-
-    # oh-my-posh installs to ~/.local/bin and drops its themes in
-    # ~/.cache/oh-my-posh/themes. Ensure the binary is on PATH, then init it
-    # with the agnosterplus theme.
-    append_bashrc 'export PATH="$HOME/.local/bin:$PATH"' '# ~/.local/bin on PATH'
-    append_bashrc 'command -v oh-my-posh >/dev/null 2>&1 && eval "$(oh-my-posh init bash --config $HOME/.cache/oh-my-posh/themes/agnosterplus.omp.json)"' '# oh-my-posh (prompt, agnosterplus theme)'
-
-    print_success "oh-my-posh configured for bash (agnosterplus theme)"
-    print_info "JetBrains Mono Nerd Font is installed — select it in your terminal so glyphs render."
-}
-
-section_shell_setup() {
-    # JetBrains Mono Nerd Font is installed for BOTH shells so the prompt
-    # (powerlevel10k or oh-my-posh) always has its glyphs available, and set as
-    # Konsole's default font so those glyphs actually render.
-    install_nerd_font
-    configure_konsole_font
-
-    if [[ "$SHELL_CHOICE" != "zsh" ]]; then
-        section_bash_setup
-        return 0
-    fi
-
-    print_section "ZSH + OH-MY-ZSH + POWERLEVEL10K"
-
-    # zsh itself is installed in Section 2. Bail out gracefully if it's missing.
-    if ! command -v zsh >/dev/null 2>&1; then
-        WARNINGS+=("zsh setup (zsh binary not found)")
-        print_warning "zsh is not installed — skipping zsh setup"
-        return 0
-    fi
-
-    local ZDOTDIR_OMZ="$USER_HOME/.oh-my-zsh"
-    local ZSH_CUSTOM="$ZDOTDIR_OMZ/custom"
-
-    # ── oh-my-zsh (unattended: no chsh, no shell launch, writes a fresh .zshrc) ─
-    if [[ -d "$ZDOTDIR_OMZ" ]]; then
-        print_info "oh-my-zsh already installed — skipping installer"
-    else
-        print_info "Installing oh-my-zsh..."
-        soft "oh-my-zsh" sudo -Hu "$SUDO_USER" bash -c \
-            'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
-    fi
-
-    # ── powerlevel10k theme ───────────────────────────────────────────────────
-    if [[ -d "$ZSH_CUSTOM/themes/powerlevel10k" ]]; then
-        print_info "powerlevel10k already present — skipping clone"
-    else
-        print_info "Installing powerlevel10k theme..."
-        soft "powerlevel10k" sudo -Hu "$SUDO_USER" git clone --depth=1 \
-            https://github.com/romkatv/powerlevel10k.git "$ZSH_CUSTOM/themes/powerlevel10k"
-    fi
-
-    # ── Autocomplete + syntax highlighting plugins ────────────────────────────
-    if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]]; then
-        soft "zsh-autosuggestions" sudo -Hu "$SUDO_USER" git clone --depth=1 \
-            https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
-    fi
-    if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
-        soft "zsh-syntax-highlighting" sudo -Hu "$SUDO_USER" git clone --depth=1 \
-            https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
-    fi
-
-    # ── Point .zshrc at powerlevel10k and enable the plugins ──────────────────
-    # (syntax-highlighting must load last per its docs; zoxide/fzf are built-in
-    #  oh-my-zsh plugins that init those tools.)
-    local ZSHRC="$USER_HOME/.zshrc"
-    if [[ -f "$ZSHRC" ]]; then
-        sudo -Hu "$SUDO_USER" sed -i \
-            's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$ZSHRC"
-        sudo -Hu "$SUDO_USER" sed -i \
-            's|^plugins=.*|plugins=(git fzf zsh-autosuggestions zsh-syntax-highlighting)|' "$ZSHRC"
-        print_success "Configured ~/.zshrc (theme + plugins)"
-    else
-        print_warning "~/.zshrc not found — oh-my-zsh install may have failed"
-    fi
-
-    # zoxide is NOT a built-in oh-my-zsh plugin, so it must be init'd explicitly
-    # (mirrors the ~/.bashrc line in Section 2). fzf stays as the oh-my-zsh plugin
-    # above since that one does exist and adds key-bindings/completion.
-    append_zshrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"' '# zoxide (smarter cd)'
-
-    # Atuin for zsh (its installer targets bash; add the zsh hook too).
-    append_zshrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init zsh)"' '# atuin (shell history)'
-
-    # ── Make zsh the default login shell for the user ─────────────────────────
-    local zsh_path current_shell
-    zsh_path="$(command -v zsh || true)"
-    print_info "Setting zsh as the default shell for '$SUDO_USER'..."
-    if [[ -z "$zsh_path" ]]; then
-        WARNINGS+=("set zsh as default shell (zsh not found)")
-        print_warning "zsh binary not found — cannot set it as the default shell."
-    else
-        # Register zsh in /etc/shells (chsh and some tools require it).
-        if ! grep -qxF "$zsh_path" /etc/shells 2>/dev/null; then
-            echo "$zsh_path" >> /etc/shells
-            print_info "Registered $zsh_path in /etc/shells"
-        fi
-        # Set the login shell in /etc/passwd. usermod (root, no PAM prompt) is
-        # primary; fall back to chsh. '|| true' so set -e can't abort here.
-        usermod -s "$zsh_path" "$SUDO_USER" 2>/dev/null \
-            || chsh -s "$zsh_path" "$SUDO_USER" 2>/dev/null || true
-
-        # Read back the source of truth from /etc/passwd and report it plainly.
-        # Match on basename so /usr/bin/zsh vs /usr/sbin/zsh (same binary on
-        # merged-/usr systems) both count as success.
-        current_shell="$(getent passwd "$SUDO_USER" | cut -d: -f7)"
-        if [[ "$(basename "$current_shell")" == "zsh" ]]; then
-            print_success "Login shell for '$SUDO_USER' in /etc/passwd is now: $current_shell"
-            print_warning "IMPORTANT: fully LOG OUT and back in (or reboot) for this to apply."
-            print_warning "A new terminal tab in your CURRENT session may still start bash;"
-            print_warning "verify with:  getent passwd $SUDO_USER   (7th field should end in /zsh)"
-        else
-            WARNINGS+=("set zsh as default shell (still '$current_shell')")
-            print_warning "Login shell is still '$current_shell'. Set it manually with:"
-            print_warning "    sudo chsh -s $zsh_path $SUDO_USER"
-        fi
-    fi
-
-    print_success "zsh setup complete."
-    print_info "On first launch, powerlevel10k runs its config wizard (or run 'p10k configure')."
-}
-
-################################################################################
-#              SECTION 7: DEV TOOLS
-#
-#   Installs development runtimes, languages, and local database services:
-#     - NVM + Node LTS, React Native, Expo CLI
-#     - Go, Flutter + Dart, Rustup
-#     - Java 21, Maven, Gradle, Spring Boot CLI (via SDKMAN)
-#     - PostgreSQL, MariaDB (local services)
-#
-#   SECURITY NOTE: Database services are configured for local development only.
-#   Change default credentials before exposing to any network.
-################################################################################
-
-section_dev_tools() {
-    print_section "DEV TOOLS"
+section_dev_tools_essential() {
+    print_section "ESSENTIAL DEV TOOLS"
 
      # ── Python3 + Pip ────────────────────────────────────────────────────────
     print_info "Installing Python 3 with development tools..."
@@ -806,23 +824,18 @@ section_dev_tools() {
         'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash'
     print_success "NVM installed"
 
+    # NVM's installer only wires one profile (~/.bashrc here), so load it in
+    # ~/.zshrc as well. (bash_completion is bash-only and intentionally omitted.)
+    if [[ "$SHELL_CHOICE" == "zsh" ]]; then
+        append_zshrc 'export NVM_DIR="$HOME/.nvm"' '# nvm'
+        append_zshrc '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+    fi
+
     print_info "Installing Node LTS via NVM..."
     sudo -Hu "$SUDO_USER" bash -c \
         'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
          nvm install --lts && nvm use --lts && nvm alias default node'
     print_success "Node LTS installed"
-
-    # ── React Native + Expo CLI ───────────────────────────────────────────────
-    print_info "Installing Expo CLI..."
-    sudo -Hu "$SUDO_USER" bash -c \
-        'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
-         npm install -g @expo/cli'
-    print_success "Expo CLI installed"
-
-    # ── Go ────────────────────────────────────────────────────────────────────
-    print_info "Installing Go..."
-    dnf install -y golang
-    print_success "Go installed"
 
     # ── Flutter + Dart ────────────────────────────────────────────────────────
     # Flutter SDK bundles Dart — no separate Dart install needed.
@@ -838,25 +851,46 @@ section_dev_tools() {
         sudo -Hu "$SUDO_USER" git clone https://github.com/flutter/flutter.git -b stable "$FLUTTER_DIR"
     fi
 
-    # Add Flutter to PATH via ~/.bashrc (idempotent: only append if not already there)
-    BASHRC="$USER_HOME/.bashrc"
-    FLUTTER_LINE='export PATH="$PATH:$HOME/.flutter/bin"'
-    if ! sudo -Hu "$SUDO_USER" grep -Fxq "$FLUTTER_LINE" "$BASHRC" 2>/dev/null; then
-        echo "" | sudo -Hu "$SUDO_USER" tee -a "$BASHRC" > /dev/null
-        echo "# Flutter SDK" | sudo -Hu "$SUDO_USER" tee -a "$BASHRC" > /dev/null
-        echo "$FLUTTER_LINE" | sudo -Hu "$SUDO_USER" tee -a "$BASHRC" > /dev/null
-        print_success "Flutter added to ~/.bashrc"
-    else
-        print_info "Flutter PATH already in ~/.bashrc — skipping"
-    fi
+    # Add Flutter to PATH for the user's login shell(s) (bash, plus zsh if chosen).
+    append_login_rc 'export PATH="$PATH:$HOME/.flutter/bin"' '# Flutter SDK'
 
     sudo -Hu "$SUDO_USER" bash -c "export PATH=\"\$PATH:$FLUTTER_DIR/bin\" && flutter precache"
 
     # Persist CHROME_EXECUTABLE so Flutter web finds Brave in future shells
     # (a bare `export` here would only live for the duration of this script).
-    append_bashrc 'export CHROME_EXECUTABLE=/var/lib/flatpak/exports/bin/com.brave.Browser' '# Flutter: use Brave for web'
+    append_login_rc 'export CHROME_EXECUTABLE=/var/lib/flatpak/exports/bin/com.brave.Browser' '# Flutter: use Brave for web'
 
     print_success "Flutter + Dart installed and Brave set as CHROME_EXECUTABLE"
+}
+
+################################################################################
+#              SECTION 8: OPTIONAL DEV TOOLS   (baremetal only)
+#
+#   Heavier / less-frequently-needed toolchains and local database services:
+#     - Expo CLI (React Native; builds on the Node from Section 7)
+#     - Go, Rustup
+#     - Java 21 + Gradle + Spring Boot CLI (via SDKMAN), Maven
+#     - PostgreSQL, MariaDB (local services)
+#
+#   SECURITY NOTE: Database services are configured for local development only.
+#   Change default credentials before exposing to any network.
+################################################################################
+
+section_dev_tools_optional() {
+    print_section "OPTIONAL DEV TOOLS"
+
+    # ── React Native + Expo CLI ───────────────────────────────────────────────
+    # Uses the Node LTS installed via NVM in Section 7 (Essential Dev Tools).
+    print_info "Installing Expo CLI..."
+    sudo -Hu "$SUDO_USER" bash -c \
+        'export NVM_DIR="$HOME/.nvm" && source "$NVM_DIR/nvm.sh" &&
+         npm install -g @expo/cli'
+    print_success "Expo CLI installed"
+
+    # ── Go ────────────────────────────────────────────────────────────────────
+    print_info "Installing Go..."
+    dnf install -y golang
+    print_success "Go installed"
 
     # ── Rustup ────────────────────────────────────────────────────────────────
     print_info "Installing Rustup..."
@@ -977,7 +1011,7 @@ section_dev_tools() {
 }
 
 ################################################################################
-#              SECTION 8: DOCKER & DOCKER COMPOSE
+#              SECTION 9: DOCKER & DOCKER COMPOSE
 #
 #   Installs Docker Engine from Docker's official RPM repository.
 #   Includes: docker-ce, docker-ce-cli, containerd.io,
@@ -1043,7 +1077,7 @@ section_docker() {
 }
 
 ################################################################################
-#              SECTION 9: SYSTEM CUSTOMIZATION
+#              SECTION 10: SYSTEM CUSTOMIZATION
 #
 #   Sets hostname and performs final updates.
 ################################################################################
@@ -1089,7 +1123,7 @@ section_customization() {
 }
 
 ################################################################################
-#              SECTION 10: DEV CONTAINERS
+#              SECTION 11: DEV CONTAINERS
 #
 #   Scaffolds a reusable dev container template at
 #   ~/.dotfiles/devcontainer-template/.devcontainer/ containing:
@@ -1097,8 +1131,7 @@ section_customization() {
 #     - docker-compose.yml (app + PostgreSQL + MySQL + MongoDB)
 #
 #   No standalone devcontainer CLI is installed — container orchestration is
-#   handled by your editor (Zed or VS Code "Reopen in Container"), so the npm
-#   '@devcontainers/cli' (and Node) is intentionally not required on the host.
+#   handled by your editor (Zed or VS Code "Reopen in Container").
 #
 #   To use the template in a project:
 #     cp -r ~/.dotfiles/devcontainer-template/.devcontainer /path/to/your/project/
@@ -1146,14 +1179,13 @@ section_devcontainers() {
         WARNINGS+=("devinit helper (bin/devinit not found next to install.sh)")
         print_warning "bin/devinit not found at $SCRIPT_DIR/bin — skipping devinit install"
     fi
-    append_bashrc 'export PATH="$HOME/.local/bin:$PATH"' '# ~/.local/bin on PATH'
 
     print_info "Scaffold a project: cd into it and run 'devinit'"
     print_info "Then reopen the project in a container from your editor (Zed or VS Code)"
 }
 
 ################################################################################
-#              SECTION 11: INSTALLATION COMPLETE - SUMMARY
+#              SECTION 12: INSTALLATION COMPLETE - SUMMARY
 ################################################################################
 
 section_summary() {
@@ -1210,35 +1242,37 @@ main() {
     select_mode
     select_shell
 
-    # ── Common base (sections 1-6) ────────────────────────────────────────────
-    section_system_updates   # Section 1
-    section_build_tools      # Section 2
-    section_flatpak          # Section 3
-    section_mullvad_vpn      # Section 4
-    section_zed_atuin        # Section 5
-    section_git_config       # Section 6
-    section_shell_setup      # Section 6.5 (zsh setup; no-op if bash chosen)
+    # ── Base system, config, shell, apps (sections 1-6) — both modes ──────────
+    section_system_updates        # Section 1
+    section_core_software         # Section 2
+    section_flatpak               # Section 3
+    section_git_config            # Section 4
+    section_shell_setup           # Section 5 (fonts, atuin, prompt; zsh optional)
+    section_apps                  # Section 6 (Zed + Mullvad)
 
-    # ── Native dev tools (section 7) — baremetal only ─────────────────────────
+    # ── Essential dev tools (section 7) — both modes ──────────────────────────
+    section_dev_tools_essential   # Section 7
+
+    # ── Optional dev tools (section 8) — baremetal only ───────────────────────
     if [[ "$INSTALL_MODE" == "baremetal" ]]; then
-        section_dev_tools    # Section 7
+        section_dev_tools_optional   # Section 8
     else
-        print_info "Skipping native dev tools (section 7) — devcontainer mode."
+        print_info "Skipping optional dev tools (section 8) — devcontainer mode."
     fi
 
-    # ── Docker + customization (sections 8-9) — both modes ─────────────────────
-    section_docker           # Section 8
-    section_customization    # Section 9
+    # ── Docker + customization (sections 9-10) — both modes ───────────────────
+    section_docker                # Section 9
+    section_customization         # Section 10
 
-    # ── Dev containers (section 10) ───────────────────────────────────────────
+    # ── Dev containers (section 11) ───────────────────────────────────────────
     # Always in devcontainer mode; opt-in for baremetal.
     if [[ "$INSTALL_MODE" == "devcontainer" || "$WITH_DEVCONTAINER" == "true" ]]; then
-        section_devcontainers   # Section 10
+        section_devcontainers     # Section 11
     else
-        print_info "Skipping dev containers (section 10)."
+        print_info "Skipping dev containers (section 11)."
     fi
 
-    section_summary
+    section_summary               # Section 12
 }
 
 # Run main function
