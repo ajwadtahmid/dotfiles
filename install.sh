@@ -19,8 +19,12 @@
 #                     (sections 1-9). Optionally also sets up dev
 #                     containers (section 10).
 #
+#   Optional --shell flag selects the default shell to set up:
+#     --shell zsh    oh-my-zsh + powerlevel10k, set as the login shell
+#     --shell bash   keep plain bash (default if not specified interactively)
+#
 #   Non-interactive examples:
-#     sudo bash install.sh --mode devcontainer
+#     sudo bash install.sh --mode devcontainer --shell zsh
 #     sudo bash install.sh --mode baremetal
 #     sudo bash install.sh --mode baremetal --with-devcontainer
 #
@@ -107,6 +111,20 @@ append_bashrc() {
     print_success "Added to ~/.bashrc: ${comment:-$line}"
 }
 
+# Same as append_bashrc but for ~/.zshrc (used by the optional zsh setup).
+append_zshrc() {
+    local line="$1" comment="${2:-}"
+    local zshrc="$USER_HOME/.zshrc"
+    if sudo -Hu "$SUDO_USER" grep -Fxq "$line" "$zshrc" 2>/dev/null; then
+        print_info "Already in ~/.zshrc: ${comment:-$line}"
+        return 0
+    fi
+    echo "" | sudo -Hu "$SUDO_USER" tee -a "$zshrc" > /dev/null
+    [[ -n "$comment" ]] && echo "$comment" | sudo -Hu "$SUDO_USER" tee -a "$zshrc" > /dev/null
+    echo "$line" | sudo -Hu "$SUDO_USER" tee -a "$zshrc" > /dev/null
+    print_success "Added to ~/.zshrc: ${comment:-$line}"
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "This script must be run with sudo (e.g. 'sudo bash install.sh')"
@@ -139,6 +157,8 @@ check_root() {
 # Defaults (may be overridden by flags or the interactive prompt)
 INSTALL_MODE=""          # "baremetal" or "devcontainer"
 WITH_DEVCONTAINER=false  # baremetal-only: also run section 10
+SHELL_CHOICE=""          # "zsh" or "bash" (default shell to set up)
+ZED_SETTINGS_NEEDS_MANUAL=false  # set true when a Zed settings.json already exists
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -153,6 +173,14 @@ parse_args() {
                 ;;
             --with-devcontainer)
                 WITH_DEVCONTAINER=true
+                shift
+                ;;
+            --shell)
+                SHELL_CHOICE="${2:-}"
+                shift 2
+                ;;
+            --shell=*)
+                SHELL_CHOICE="${1#*=}"
                 shift
                 ;;
             -h|--help)
@@ -170,6 +198,29 @@ parse_args() {
         print_error "Invalid --mode '$INSTALL_MODE' (expected 'baremetal' or 'devcontainer')"
         exit 1
     fi
+    if [[ -n "$SHELL_CHOICE" && "$SHELL_CHOICE" != "zsh" && "$SHELL_CHOICE" != "bash" ]]; then
+        print_error "Invalid --shell '$SHELL_CHOICE' (expected 'zsh' or 'bash')"
+        exit 1
+    fi
+}
+
+select_shell() {
+    # If shell already supplied via flag, don't prompt for it.
+    if [[ -n "$SHELL_CHOICE" ]]; then
+        print_info "Default shell: $SHELL_CHOICE"
+        return 0
+    fi
+    print_section "SELECT DEFAULT SHELL"
+    echo "  zsh  - oh-my-zsh + powerlevel10k + autosuggestions & syntax"
+    echo "         highlighting, set as your default login shell."
+    echo "  bash - keep bash as the default shell, with the oh-my-posh prompt."
+    echo ""
+    read -p "Set up and use zsh (oh-my-zsh + powerlevel10k)? [y/N]: " ZSH_CHOICE
+    case "$ZSH_CHOICE" in
+        [yY]|[yY][eE][sS]) SHELL_CHOICE="zsh" ;;
+        *)                 SHELL_CHOICE="bash" ;;
+    esac
+    print_info "Default shell: $SHELL_CHOICE"
 }
 
 select_mode() {
@@ -300,7 +351,6 @@ section_build_tools() {
 
     # lazygit (git TUI) is not in Fedora's base repos — install it from the
     # dejan/lazygit COPR. 'dnf copr' is provided by dnf5-plugins (Section 1).
-    # (starship is handled in Section 5, alongside the other shell tools.)
     print_info "Installing lazygit (COPR dejan/lazygit)..."
     if soft "enable COPR dejan/lazygit" dnf copr enable -y dejan/lazygit; then
         soft "CLI tool: lazygit" dnf install -y lazygit
@@ -397,13 +447,75 @@ section_mullvad_vpn() {
 }
 
 ################################################################################
-#              SECTION 5: ZED EDITOR, ATUIN & STARSHIP
+#              SECTION 5: ZED EDITOR & ATUIN
 #
-#   Zed      — a minimal, fast code editor (official installer).
-#   Atuin    — shell history manager (official installer).
-#   Starship — cross-shell prompt (official installer, https://starship.rs).
-#              Its icons/glyphs need a Nerd Font, so we install one first.
+#   Zed is a minimal code editor crafted for speed.
+#   Install from official Zed repository for security and automatic updates.
 ################################################################################
+
+# The desired Zed settings.json content, emitted to stdout. Kept in one place
+# so the writer (below) and the summary printout use the exact same content.
+zed_settings_content() {
+    cat <<'ZED_SETTINGS'
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "cli_default_open_behavior": "existing_window",
+  "project_panel": {
+    "dock": "left"
+  },
+  "outline_panel": {
+    "dock": "left"
+  },
+  "collaboration_panel": {
+    "dock": "left"
+  },
+  "agent": {
+    "sidebar_side": "right",
+    "dock": "right",
+    "favorite_models": [],
+    "model_parameters": []
+  },
+  "git_panel": {
+    "dock": "left"
+  },
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  },
+  "icon_theme": "Zed (Default)",
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "Ayu Dark"
+  }
+}
+ZED_SETTINGS
+}
+
+# Write the Zed settings only if the user has none yet. If a settings.json
+# already exists we never touch it — instead we flag it so section_summary
+# prints the desired config for the user to copy manually.
+apply_zed_settings() {
+    local zed_dir="$USER_HOME/.config/zed"
+    local zed_file="$zed_dir/settings.json"
+    if [[ -f "$zed_file" ]]; then
+        print_warning "Zed settings.json already exists — leaving it untouched."
+        ZED_SETTINGS_NEEDS_MANUAL=true
+        return 0
+    fi
+    install -d -o "$SUDO_USER" -g "$SUDO_USER" "$zed_dir"
+    zed_settings_content | sudo -Hu "$SUDO_USER" tee "$zed_file" >/dev/null
+    print_success "Wrote Zed settings to $zed_file"
+}
 
 section_zed_atuin() {
     print_section "ZED EDITOR"
@@ -414,6 +526,8 @@ section_zed_atuin() {
         print_info "Installing Zed editor..."
         soft "Zed editor" sudo -Hu "$SUDO_USER" bash -c 'curl -fsSL https://zed.dev/install.sh | bash'
     fi
+
+    apply_zed_settings
 
     print_section "ATUIN SHELL HISTORY MANAGER"
 
@@ -428,37 +542,6 @@ section_zed_atuin() {
     # add it here. If it ever stops doing that, uncomment the line below and
     # re-run the script:
     # append_bashrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init bash)"' '# atuin (shell history)'
-
-    print_section "STARSHIP PROMPT"
-
-    # Starship's icons/glyphs require a Nerd Font. Install one system-wide
-    # (JetBrains Mono Nerd Font) if none is present yet, so the prompt renders right.
-    if command -v fc-list >/dev/null 2>&1 && fc-list | grep -qi "Nerd Font"; then
-        print_info "A Nerd Font is already installed — skipping font install"
-    else
-        print_info "Installing JetBrains Mono Nerd Font (prerequisite for starship glyphs)..."
-        NERD_TMP=$(mktemp -d)
-        if soft "JetBrains Mono Nerd Font download" curl -fsSL -o "$NERD_TMP/JetBrainsMono.zip" \
-                https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip; then
-            install -d /usr/share/fonts/nerd-fonts
-            unzip -oq "$NERD_TMP/JetBrainsMono.zip" -d /usr/share/fonts/nerd-fonts
-            fc-cache -f >/dev/null 2>&1 || true
-            print_success "JetBrains Mono Nerd Font installed"
-        fi
-        rm -rf "$NERD_TMP"
-    fi
-
-    # Install starship via its official installer (https://starship.rs/guide/).
-    # Installs to /usr/local/bin so it's on PATH for every user.
-    if command -v starship >/dev/null 2>&1; then
-        print_info "Starship already installed — skipping"
-    else
-        print_info "Installing starship prompt..."
-        soft "starship" bash -c 'curl -fsSL https://starship.rs/install.sh | sh -s -- --yes'
-    fi
-
-    # Wire starship into the user's bash prompt (guarded no-op if absent).
-    append_bashrc 'command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"' '# starship (prompt)'
 }
 
 ################################################################################
@@ -483,6 +566,208 @@ section_git_config() {
     print_info "To update Git config later, run:"
     echo "  git config --global user.name 'Your Name'"
     echo "  git config --global user.email 'your.email@example.com'"
+}
+
+################################################################################
+#              SECTION 6.5: SHELL SETUP (zsh + oh-my-zsh + powerlevel10k)
+#
+#   Runs only when the user chose zsh at the start. Sets up:
+#     - oh-my-zsh (unattended; does not launch zsh or chsh on its own)
+#     - powerlevel10k theme (needs a Nerd Font, installed here)
+#     - zsh-autosuggestions + zsh-syntax-highlighting (autocomplete + colors)
+#     - fzf + zoxide + atuin integration, then sets zsh as the login shell
+#
+#   If the user chose bash, it stays the default and gets the oh-my-posh prompt.
+################################################################################
+
+# Install the JetBrains Mono Nerd Font system-wide (needed for the p10k /
+# oh-my-posh glyphs) unless a Nerd Font is already present. Idempotent.
+install_nerd_font() {
+    if command -v fc-list >/dev/null 2>&1 && fc-list | grep -qi "Nerd Font"; then
+        print_info "A Nerd Font is already installed — skipping font install"
+        return 0
+    fi
+    print_info "Installing JetBrains Mono Nerd Font..."
+    local tmp; tmp=$(mktemp -d)
+    if soft "JetBrains Mono Nerd Font download" curl -fsSL -o "$tmp/JetBrainsMono.zip" \
+            https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip; then
+        install -d /usr/share/fonts/nerd-fonts
+        unzip -oq "$tmp/JetBrainsMono.zip" -d /usr/share/fonts/nerd-fonts
+        fc-cache -f >/dev/null 2>&1 || true
+        print_success "JetBrains Mono Nerd Font installed"
+    fi
+    rm -rf "$tmp"
+}
+
+# Set Konsole's default font to JetBrainsMono Nerd Font. Uses kwriteconfig,
+# which just edits config files (no live KDE session needed), so it's safe to
+# run from the installer and re-run any time. Updates the existing default
+# profile so other Konsole customizations are preserved; creates one only if
+# there is no default profile yet. No-op if the KDE tools aren't installed.
+configure_konsole_font() {
+    local kwrite kread
+    kwrite=$(command -v kwriteconfig6 2>/dev/null || command -v kwriteconfig5 2>/dev/null || true)
+    kread=$(command -v kreadconfig6 2>/dev/null  || command -v kreadconfig5 2>/dev/null  || true)
+    if [[ -z "$kwrite" ]]; then
+        print_info "kwriteconfig (KDE) not found — skipping Konsole font setup."
+        return 0
+    fi
+
+    local font="JetBrainsMono Nerd Font,12,-1,5,50,0,0,0,0,0"
+    local kdir="$USER_HOME/.local/share/konsole"
+    install -d -o "$SUDO_USER" -g "$SUDO_USER" "$kdir"
+
+    # Reuse the current default profile if there is one; otherwise create one.
+    local default_profile="" profile_file
+    [[ -n "$kread" ]] && default_profile=$(sudo -Hu "$SUDO_USER" "$kread" \
+        --file konsolerc --group "Desktop Entry" --key DefaultProfile 2>/dev/null || true)
+
+    if [[ -n "$default_profile" && -f "$kdir/$default_profile" ]]; then
+        profile_file="$kdir/$default_profile"
+        print_info "Updating Konsole font in existing profile: $default_profile"
+    else
+        profile_file="$kdir/Dotfiles.profile"
+        sudo -Hu "$SUDO_USER" "$kwrite" --file "$profile_file" --group General --key Name "Dotfiles" || true
+        sudo -Hu "$SUDO_USER" "$kwrite" --file konsolerc --group "Desktop Entry" --key DefaultProfile "Dotfiles.profile" || true
+        print_info "Created Konsole profile 'Dotfiles' and set it as default"
+    fi
+
+    soft "Konsole font (kwriteconfig)" sudo -Hu "$SUDO_USER" "$kwrite" \
+        --file "$profile_file" --group Appearance --key Font "$font"
+    print_success "Konsole default font set to JetBrainsMono Nerd Font (restart Konsole to apply)"
+}
+
+# bash path: install the oh-my-posh prompt and wire it into ~/.bashrc.
+section_bash_setup() {
+    print_section "BASH PROMPT (oh-my-posh)"
+
+    if sudo -Hu "$SUDO_USER" bash -c 'command -v oh-my-posh >/dev/null 2>&1 || [ -x "$HOME/.local/bin/oh-my-posh" ]'; then
+        print_info "oh-my-posh already installed — skipping"
+    else
+        print_info "Installing oh-my-posh..."
+        soft "oh-my-posh" sudo -Hu "$SUDO_USER" bash -c 'curl -s https://ohmyposh.dev/install.sh | bash -s'
+    fi
+
+    # oh-my-posh installs to ~/.local/bin and drops its themes in
+    # ~/.cache/oh-my-posh/themes. Ensure the binary is on PATH, then init it
+    # with the agnosterplus theme.
+    append_bashrc 'export PATH="$HOME/.local/bin:$PATH"' '# ~/.local/bin on PATH'
+    append_bashrc 'command -v oh-my-posh >/dev/null 2>&1 && eval "$(oh-my-posh init bash --config $HOME/.cache/oh-my-posh/themes/agnosterplus.omp.json)"' '# oh-my-posh (prompt, agnosterplus theme)'
+
+    print_success "oh-my-posh configured for bash (agnosterplus theme)"
+    print_info "JetBrains Mono Nerd Font is installed — select it in your terminal so glyphs render."
+}
+
+section_shell_setup() {
+    # JetBrains Mono Nerd Font is installed for BOTH shells so the prompt
+    # (powerlevel10k or oh-my-posh) always has its glyphs available, and set as
+    # Konsole's default font so those glyphs actually render.
+    install_nerd_font
+    configure_konsole_font
+
+    if [[ "$SHELL_CHOICE" != "zsh" ]]; then
+        section_bash_setup
+        return 0
+    fi
+
+    print_section "ZSH + OH-MY-ZSH + POWERLEVEL10K"
+
+    # zsh itself is installed in Section 2. Bail out gracefully if it's missing.
+    if ! command -v zsh >/dev/null 2>&1; then
+        WARNINGS+=("zsh setup (zsh binary not found)")
+        print_warning "zsh is not installed — skipping zsh setup"
+        return 0
+    fi
+
+    local ZDOTDIR_OMZ="$USER_HOME/.oh-my-zsh"
+    local ZSH_CUSTOM="$ZDOTDIR_OMZ/custom"
+
+    # ── oh-my-zsh (unattended: no chsh, no shell launch, writes a fresh .zshrc) ─
+    if [[ -d "$ZDOTDIR_OMZ" ]]; then
+        print_info "oh-my-zsh already installed — skipping installer"
+    else
+        print_info "Installing oh-my-zsh..."
+        soft "oh-my-zsh" sudo -Hu "$SUDO_USER" bash -c \
+            'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+    fi
+
+    # ── powerlevel10k theme ───────────────────────────────────────────────────
+    if [[ -d "$ZSH_CUSTOM/themes/powerlevel10k" ]]; then
+        print_info "powerlevel10k already present — skipping clone"
+    else
+        print_info "Installing powerlevel10k theme..."
+        soft "powerlevel10k" sudo -Hu "$SUDO_USER" git clone --depth=1 \
+            https://github.com/romkatv/powerlevel10k.git "$ZSH_CUSTOM/themes/powerlevel10k"
+    fi
+
+    # ── Autocomplete + syntax highlighting plugins ────────────────────────────
+    if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-autosuggestions" ]]; then
+        soft "zsh-autosuggestions" sudo -Hu "$SUDO_USER" git clone --depth=1 \
+            https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
+    fi
+    if [[ ! -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
+        soft "zsh-syntax-highlighting" sudo -Hu "$SUDO_USER" git clone --depth=1 \
+            https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
+    fi
+
+    # ── Point .zshrc at powerlevel10k and enable the plugins ──────────────────
+    # (syntax-highlighting must load last per its docs; zoxide/fzf are built-in
+    #  oh-my-zsh plugins that init those tools.)
+    local ZSHRC="$USER_HOME/.zshrc"
+    if [[ -f "$ZSHRC" ]]; then
+        sudo -Hu "$SUDO_USER" sed -i \
+            's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$ZSHRC"
+        sudo -Hu "$SUDO_USER" sed -i \
+            's|^plugins=.*|plugins=(git fzf zsh-autosuggestions zsh-syntax-highlighting)|' "$ZSHRC"
+        print_success "Configured ~/.zshrc (theme + plugins)"
+    else
+        print_warning "~/.zshrc not found — oh-my-zsh install may have failed"
+    fi
+
+    # zoxide is NOT a built-in oh-my-zsh plugin, so it must be init'd explicitly
+    # (mirrors the ~/.bashrc line in Section 2). fzf stays as the oh-my-zsh plugin
+    # above since that one does exist and adds key-bindings/completion.
+    append_zshrc 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"' '# zoxide (smarter cd)'
+
+    # Atuin for zsh (its installer targets bash; add the zsh hook too).
+    append_zshrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init zsh)"' '# atuin (shell history)'
+
+    # ── Make zsh the default login shell for the user ─────────────────────────
+    local zsh_path current_shell
+    zsh_path="$(command -v zsh || true)"
+    print_info "Setting zsh as the default shell for '$SUDO_USER'..."
+    if [[ -z "$zsh_path" ]]; then
+        WARNINGS+=("set zsh as default shell (zsh not found)")
+        print_warning "zsh binary not found — cannot set it as the default shell."
+    else
+        # Register zsh in /etc/shells (chsh and some tools require it).
+        if ! grep -qxF "$zsh_path" /etc/shells 2>/dev/null; then
+            echo "$zsh_path" >> /etc/shells
+            print_info "Registered $zsh_path in /etc/shells"
+        fi
+        # Set the login shell in /etc/passwd. usermod (root, no PAM prompt) is
+        # primary; fall back to chsh. '|| true' so set -e can't abort here.
+        usermod -s "$zsh_path" "$SUDO_USER" 2>/dev/null \
+            || chsh -s "$zsh_path" "$SUDO_USER" 2>/dev/null || true
+
+        # Read back the source of truth from /etc/passwd and report it plainly.
+        # Match on basename so /usr/bin/zsh vs /usr/sbin/zsh (same binary on
+        # merged-/usr systems) both count as success.
+        current_shell="$(getent passwd "$SUDO_USER" | cut -d: -f7)"
+        if [[ "$(basename "$current_shell")" == "zsh" ]]; then
+            print_success "Login shell for '$SUDO_USER' in /etc/passwd is now: $current_shell"
+            print_warning "IMPORTANT: fully LOG OUT and back in (or reboot) for this to apply."
+            print_warning "A new terminal tab in your CURRENT session may still start bash;"
+            print_warning "verify with:  getent passwd $SUDO_USER   (7th field should end in /zsh)"
+        else
+            WARNINGS+=("set zsh as default shell (still '$current_shell')")
+            print_warning "Login shell is still '$current_shell'. Set it manually with:"
+            print_warning "    sudo chsh -s $zsh_path $SUDO_USER"
+        fi
+    fi
+
+    print_success "zsh setup complete."
+    print_info "On first launch, powerlevel10k runs its config wizard (or run 'p10k configure')."
 }
 
 ################################################################################
@@ -900,6 +1185,17 @@ section_summary() {
         print_success "All steps completed with no skipped items."
     fi
 
+    # If a Zed settings.json already existed, we didn't touch it — print the
+    # desired config here so the user can copy whatever they want from it.
+    if [[ "$ZED_SETTINGS_NEEDS_MANUAL" == "true" ]]; then
+        print_warning "You already have ~/.config/zed/settings.json — it was left as-is."
+        print_info "Desired Zed settings (copy any parts you want):"
+        echo "----------------------------------------------------------------"
+        zed_settings_content
+        echo "----------------------------------------------------------------"
+        echo ""
+    fi
+
     print_success "Setup complete. Happy coding!"
 }
 
@@ -912,6 +1208,7 @@ main() {
     check_root
     parse_args "$@"
     select_mode
+    select_shell
 
     # ── Common base (sections 1-6) ────────────────────────────────────────────
     section_system_updates   # Section 1
@@ -920,6 +1217,7 @@ main() {
     section_mullvad_vpn      # Section 4
     section_zed_atuin        # Section 5
     section_git_config       # Section 6
+    section_shell_setup      # Section 6.5 (zsh setup; no-op if bash chosen)
 
     # ── Native dev tools (section 7) — baremetal only ─────────────────────────
     if [[ "$INSTALL_MODE" == "baremetal" ]]; then
