@@ -136,6 +136,24 @@ append_login_rc() {
     return 0
 }
 
+# Ensure the nvm loader is present in the given rc file. nvm's installer wires
+# only the single profile it detects from $SHELL, so the other shell can end up
+# without it. Matched on the "nvm.sh" substring because nvm writes the same
+# source line with a trailing comment, which an exact-line check would miss.
+ensure_nvm_rc() {
+    local rc="$1"
+    if sudo -Hu "$SUDO_USER" grep -q 'nvm\.sh' "$rc" 2>/dev/null; then
+        print_info "nvm already loaded in $(basename "$rc")"
+        return 0
+    fi
+    { echo ""
+      echo "# nvm"
+      echo 'export NVM_DIR="$HOME/.nvm"'
+      echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+    } | sudo -Hu "$SUDO_USER" tee -a "$rc" > /dev/null
+    print_success "Added nvm loader to $(basename "$rc")"
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "This script must be run with sudo (e.g. 'sudo bash install.sh')"
@@ -824,11 +842,11 @@ section_dev_tools_essential() {
         'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash'
     print_success "NVM installed"
 
-    # NVM's installer only wires one profile (~/.bashrc here), so load it in
-    # ~/.zshrc as well. (bash_completion is bash-only and intentionally omitted.)
+    # Make sure nvm loads in the shell(s) actually in use, whichever single
+    # profile its installer happened to pick.
+    ensure_nvm_rc "$USER_HOME/.bashrc"
     if [[ "$SHELL_CHOICE" == "zsh" ]]; then
-        append_zshrc 'export NVM_DIR="$HOME/.nvm"' '# nvm'
-        append_zshrc '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"'
+        ensure_nvm_rc "$USER_HOME/.zshrc"
     fi
 
     print_info "Installing Node LTS via NVM..."
