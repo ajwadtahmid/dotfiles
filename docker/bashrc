@@ -25,8 +25,7 @@ export PATH="$PATH:/usr/local/go/bin:$GOPATH/bin"
 # Flutter
 export PATH="$PATH:$HOME/flutter/bin"
 
-# FIX: Replaced swiftenv block with direct Swift PATH.
-#      swiftenv is no longer used — Swift is installed as a tarball in /opt.
+# Swift — installed as a tarball in /opt (see Dockerfile), not via a manager.
 export PATH="/opt/swift-6.3-RELEASE-ubuntu24.04/usr/bin:$PATH"
 
 # Android SDK

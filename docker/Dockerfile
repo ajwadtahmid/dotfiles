@@ -35,10 +35,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Create a non-root user ───────────────────────────────────────────────────
-# FIX: "AARG" typo corrected to "ARG"
-# FIX: Ubuntu 24.04 pre-creates a group+user called "ubuntu" with UID/GID 1000.
-#      groupadd/useradd fail with exit code 4 if the GID/UID already exists.
-#      We rename the existing ubuntu user/group to "dev" instead.
+# Ubuntu pre-creates a group+user called "ubuntu" with UID/GID 1000, and
+# groupadd/useradd fail with exit code 4 when the GID/UID already exists — so
+# rename that existing user/group to "dev" rather than creating a new one.
 ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -47,16 +46,16 @@ RUN groupmod --new-name $USERNAME $(getent group $USER_GID | cut -d: -f1) \
        $(getent passwd $USER_UID | cut -d: -f1) \
     && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME
 
-# FIX: USER instruction was missing entirely. Without it, all subsequent RUN
-#      commands execute as root, $HOME resolves to /root, and every tool gets
-#      installed into the wrong location — breaking all PATH references.
+# Everything below runs as the dev user. Without this, RUN layers execute as
+# root, $HOME resolves to /root, and the tooling lands outside the PATHs set
+# further down.
 USER $USERNAME
 WORKDIR /home/$USERNAME
 ENV HOME=/home/$USERNAME
 
 # ─── pyenv + Python 3.12 ──────────────────────────────────────────────────────
-# FIX: 3.12.0 → 3.12.13. Python 3.12.0 fails to build on Ubuntu 24.04 due to
-#      a Tcl_Size type mismatch introduced in Tcl 8.7/9.0.
+# Pinned to 3.12.13: 3.12.0 fails to build against Tcl 8.7/9.0 (Tcl_Size type
+# mismatch), so don't lower this patch version.
 RUN curl https://pyenv.run | bash
 ENV PYENV_ROOT="$HOME/.pyenv"
 ENV PATH="$PYENV_ROOT/bin:$PATH"
@@ -69,8 +68,8 @@ RUN eval "$(pyenv init -)" && \
 # ─── fnm + Node LTS ───────────────────────────────────────────────────────────
 RUN curl -fsSL https://fnm.vercel.app/install | bash
 ENV PATH="$HOME/.local/share/fnm:$PATH"
-# FIX: Added --shell bash to "fnm env". Non-interactive RUN layers require it
-#      or fnm won't set up the environment and subsequent commands fail.
+# --shell bash is required: fnm can't detect the shell in a non-interactive RUN
+# layer, and without it the environment is never set up.
 RUN eval "$(fnm env --shell bash)" && \
     fnm install --lts && fnm use lts-latest && \
     npm install -g typescript pnpm yarn
@@ -91,10 +90,6 @@ RUN rustup update stable && \
     cargo install cargo-watch cargo-edit
 
 # ─── Go ───────────────────────────────────────────────────────────────────────
-# FIX: 1.23.0 → 1.26.1 (1.23.x is EOL as of April 2026).
-# FIX: Removed "sudo tar" — at this point we are the dev user with write access
-#      via sudo, but the cleaner approach is to just use sudo explicitly in the
-#      full command rather than piping into it.
 RUN curl -fsSL https://go.dev/dl/go1.26.1.linux-amd64.tar.gz \
     -o /tmp/go.tar.gz && \
     sudo tar -C /usr/local -xzf /tmp/go.tar.gz && \
@@ -112,10 +107,8 @@ RUN bash -c "source $HOME/.sdkman/bin/sdkman-init.sh && \
     sdk install gradle"
 
 # ─── Swift ────────────────────────────────────────────────────────────────────
-# FIX: Replaced swiftenv entirely. swiftenv pulls CentOS 7 / old Ubuntu
-#      prebuilt binaries that are incompatible with Ubuntu 24.04's glibc.
-#      Use the official Swift 6.3 Ubuntu 24.04 tarball from swift.org instead.
-#      Swift 6.3 is the latest stable release as of April 2026.
+# Installed from the official swift.org tarball rather than swiftenv, which
+# ships CentOS 7 / old-Ubuntu binaries that are incompatible with this glibc.
 RUN curl -fsSL \
     https://download.swift.org/swift-6.3-release/ubuntu2404/swift-6.3-RELEASE/swift-6.3-RELEASE-ubuntu24.04.tar.gz \
     -o /tmp/swift.tar.gz && \
@@ -167,8 +160,7 @@ RUN curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
 RUN eval "$(pyenv init -)" && python -m pipx install ansible-core
 
 # ─── Shell setup ──────────────────────────────────────────────────────────────
-# FIX: COPY comes after USER so the file lands in the correct home directory.
-#      The --chown flag still works correctly with the named user.
+# Must stay after USER so $HOME resolves to the dev user's home.
 COPY --chown=$USERNAME:$USERNAME bashrc $HOME/.bashrc
 
 CMD ["/bin/bash"]

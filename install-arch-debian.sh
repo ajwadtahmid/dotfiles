@@ -337,7 +337,9 @@ parse_args() {
             --with-devcontainer) WITH_DEVCONTAINER=true; shift ;;
             --shell) SHELL_CHOICE="${2:-}"; shift 2 ;;
             --shell=*) SHELL_CHOICE="${1#*=}"; shift ;;
-            -h|--help) grep '^#' "$0" | sed 's/^#//' | head -n 40; exit 0 ;;
+            # Print the banner: skip the shebang, strip the leading '#' from
+            # comment lines, and stop at the first line of actual code.
+            -h|--help) awk 'NR==1{next} /^#/{sub(/^#/,""); print; next} /^[[:space:]]*$/{next} {exit}' "$0"; exit 0 ;;
             *) print_error "Unknown argument: $1"; exit 1 ;;
         esac
     done
@@ -607,7 +609,17 @@ section_git_config() {
     run_user git config --global user.email "$GIT_EMAIL"
     run_user git config --global pull.rebase false
     run_user git config --global init.defaultBranch main
+    # Set the upstream automatically on first push of a new branch.
+    run_user git config --global push.autoSetupRemote true
+    # Normalize line endings to LF on commit (correct for Linux/macOS).
+    run_user git config --global core.autocrlf input
     print_success "Git configured"
+
+    print_info "Adding Git aliases (lg, st, undo)..."
+    run_user git config --global alias.lg "log --oneline --graph --decorate --all"
+    run_user git config --global alias.st "status -sb"
+    run_user git config --global alias.undo "reset --soft HEAD~1"
+    print_success "Git aliases configured"
 
     run_user git config --global --list | grep -E "user\.|pull\.|init\." || true
 }
@@ -697,6 +709,17 @@ install_atuin() {
     fi
 }
 
+# Everyday aliases for whichever shell(s) are in use. Called after the shell's
+# rc file is in its final state — oh-my-zsh replaces ~/.zshrc when it installs,
+# so anything written before that would be lost to its backup file.
+add_shell_aliases() {
+    print_info "Adding shell aliases..."
+    append_login_rc "alias ll='ls -lah --color=auto'" '# aliases'
+    append_login_rc "alias gs='git status'"
+    append_login_rc "alias gp='git pull'"
+    append_login_rc "alias dc='docker compose'"
+}
+
 # bash path: install the oh-my-posh prompt and wire it into ~/.bashrc.
 section_bash_setup() {
     print_section "BASH PROMPT (oh-my-posh)"
@@ -714,6 +737,8 @@ section_bash_setup() {
 
     print_success "oh-my-posh configured for bash (agnosterplus theme)"
     print_info "JetBrains Mono Nerd Font is installed — select it in your terminal so glyphs render."
+
+    add_shell_aliases
 }
 
 section_shell_setup() {
@@ -818,6 +843,8 @@ section_shell_setup() {
         append_zshrc 'command -v batcat >/dev/null 2>&1 && alias bat=batcat' '# bat alias (Debian names it batcat)'
         append_zshrc 'command -v fdfind >/dev/null 2>&1 && alias fd=fdfind' '# fd alias (Debian names it fdfind)'
     fi
+
+    add_shell_aliases
 
     # ── Make zsh the default login shell for the user ─────────────────────────
     local zsh_path current_shell
@@ -1049,6 +1076,8 @@ section_dev_tools_optional() {
     else
         soft "Go" pkg_install go
     fi
+    # Without this, anything from `go install` lands in ~/go/bin unreachable.
+    append_login_rc 'export PATH="$PATH:$HOME/go/bin"' '# Go binaries (go install)'
 
     # ── Rustup ────────────────────────────────────────────────────────────────
     print_info "Installing Rustup..."
@@ -1348,11 +1377,12 @@ section_summary() {
 ################################################################################
 
 main() {
+    # parse_args first so --help works without sudo.
+    parse_args "$@"
     print_info "Starting Debian/Arch Developer Setup..."
     check_root
     detect_distro
     map_packages
-    parse_args "$@"
     select_mode
     select_shell
 

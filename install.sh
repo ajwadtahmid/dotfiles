@@ -213,7 +213,9 @@ parse_args() {
                 shift
                 ;;
             -h|--help)
-                grep '^#' "$0" | sed 's/^#//' | head -n 40
+                # Print the banner: skip the shebang, strip the leading '#' from
+                # comment lines, and stop at the first line of actual code.
+                awk 'NR==1{next} /^#/{sub(/^#/,""); print; next} /^[[:space:]]*$/{next} {exit}' "$0"
                 exit 0
                 ;;
             *)
@@ -468,7 +470,17 @@ section_git_config() {
     sudo -Hu "$SUDO_USER" git config --global user.email "$GIT_EMAIL"
     sudo -Hu "$SUDO_USER" git config --global pull.rebase false
     sudo -Hu "$SUDO_USER" git config --global init.defaultBranch main
+    # Set the upstream automatically on first push of a new branch.
+    sudo -Hu "$SUDO_USER" git config --global push.autoSetupRemote true
+    # Normalize line endings to LF on commit (correct for Linux/macOS).
+    sudo -Hu "$SUDO_USER" git config --global core.autocrlf input
     print_success "Git configured"
+
+    print_info "Adding Git aliases (lg, st, undo)..."
+    sudo -Hu "$SUDO_USER" git config --global alias.lg "log --oneline --graph --decorate --all"
+    sudo -Hu "$SUDO_USER" git config --global alias.st "status -sb"
+    sudo -Hu "$SUDO_USER" git config --global alias.undo "reset --soft HEAD~1"
+    print_success "Git aliases configured"
 
     print_info "Git configuration:"
     sudo -Hu "$SUDO_USER" git config --global --list | grep -E "user\.|pull\.|init\."
@@ -567,6 +579,17 @@ install_atuin() {
     # append_bashrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init bash)"' '# atuin (shell history)'
 }
 
+# Everyday aliases for whichever shell(s) are in use. Called after the shell's
+# rc file is in its final state — oh-my-zsh replaces ~/.zshrc when it installs,
+# so anything written before that would be lost to its backup file.
+add_shell_aliases() {
+    print_info "Adding shell aliases..."
+    append_login_rc "alias ll='ls -lah --color=auto'" '# aliases'
+    append_login_rc "alias gs='git status'"
+    append_login_rc "alias gp='git pull'"
+    append_login_rc "alias dc='docker compose'"
+}
+
 # bash path: install the oh-my-posh prompt and wire it into ~/.bashrc.
 section_bash_setup() {
     print_section "BASH PROMPT (oh-my-posh)"
@@ -584,6 +607,8 @@ section_bash_setup() {
 
     print_success "oh-my-posh configured for bash (agnosterplus theme)"
     print_info "JetBrains Mono Nerd Font is installed — select it in your terminal so glyphs render."
+
+    add_shell_aliases
 }
 
 section_shell_setup() {
@@ -676,6 +701,8 @@ section_shell_setup() {
 
     # Atuin for zsh (its installer targets bash; add the zsh hook too).
     append_zshrc 'command -v atuin >/dev/null 2>&1 && eval "$(atuin init zsh)"' '# atuin (shell history)'
+
+    add_shell_aliases
 
     # ── Make zsh the default login shell for the user ─────────────────────────
     local zsh_path current_shell
@@ -908,6 +935,8 @@ section_dev_tools_optional() {
     # ── Go ────────────────────────────────────────────────────────────────────
     print_info "Installing Go..."
     dnf install -y golang
+    # Without this, anything from `go install` lands in ~/go/bin unreachable.
+    append_login_rc 'export PATH="$PATH:$HOME/go/bin"' '# Go binaries (go install)'
     print_success "Go installed"
 
     # ── Rustup ────────────────────────────────────────────────────────────────
@@ -1254,9 +1283,10 @@ section_summary() {
 ################################################################################
 
 main() {
+    # parse_args first so --help works without sudo.
+    parse_args "$@"
     print_info "Starting Fedora Developer Setup..."
     check_root
-    parse_args "$@"
     select_mode
     select_shell
 
