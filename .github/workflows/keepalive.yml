@@ -1,0 +1,31 @@
+name: Keepalive
+
+# GitHub auto-disables *scheduled* workflows (like devenv.yml's weekly cron)
+# after 60 days without a push to the repo. This job pushes a trivial commit
+# monthly so that clock never runs out, even if nothing else changes here.
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'   # monthly, 1st of the month, well under the 60-day limit
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Record keepalive timestamp
+        run: date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/.keepalive
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/.keepalive
+          git diff --staged --quiet || git commit -m "chore: keepalive commit to prevent workflow auto-disable"
+          git push
